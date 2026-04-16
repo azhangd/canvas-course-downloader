@@ -21,6 +21,13 @@ const CONTENT_TYPE_LABELS = {
 document.addEventListener("DOMContentLoaded", () => {
   const statusDiv = document.getElementById("status");
   const downloadBtn = document.getElementById("downloadBtn");
+  const downloadBtnLabel = document.getElementById("downloadBtnLabel");
+
+  const setStatus = (text, state) => {
+    statusDiv.textContent = text;
+    statusDiv.classList.remove("state-success", "state-error");
+    if (state) statusDiv.classList.add(`state-${state}`);
+  };
 
   document.getElementById("settingsLink").addEventListener("click", (e) => {
     e.preventDefault();
@@ -53,13 +60,13 @@ document.addEventListener("DOMContentLoaded", () => {
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
     chrome.tabs.sendMessage(tab.id, { action: "get_status" }, (response) => {
       if (chrome.runtime.lastError || !response) {
-        statusDiv.innerHTML = '<span class="error">Not on a Canvas page.</span>';
+        setStatus("Not on a Canvas page.", "error");
         return;
       }
 
       if (response.isCanvas && response.courseId) {
-        statusDiv.innerHTML = `<span class="success">Course detected</span>`;
-        downloadBtn.textContent = "Download Course Content";
+        setStatus("Course detected", "success");
+        downloadBtnLabel.textContent = "Download course content";
         downloadBtn.disabled = false;
 
         // Show course info panel
@@ -72,15 +79,15 @@ document.addEventListener("DOMContentLoaded", () => {
 
         downloadBtn.addEventListener("click", () => {
           downloadBtn.disabled = true;
-          downloadBtn.textContent = "Starting...";
+          downloadBtnLabel.textContent = "Starting...";
           chrome.tabs.sendMessage(tab.id, { action: "trigger_download" }, () => {
-            downloadBtn.textContent = "Downloads Queued!";
+            downloadBtnLabel.textContent = "Queued!";
             setTimeout(() => window.close(), 1500);
           });
         });
       } else if (response.isCanvas && response.isHomepage) {
-        statusDiv.innerHTML = '<span class="success">Canvas dashboard detected</span>';
-        downloadBtn.textContent = "Select Courses to Download";
+        setStatus("Canvas dashboard detected", "success");
+        downloadBtnLabel.textContent = "Select courses to download";
         downloadBtn.disabled = false;
 
         downloadBtn.addEventListener("click", () => {
@@ -89,7 +96,7 @@ document.addEventListener("DOMContentLoaded", () => {
           });
         });
       } else {
-        statusDiv.innerHTML = '<span class="error">Navigate to a Canvas page first.</span>';
+        setStatus("Navigate to a Canvas page first.", "error");
       }
     });
   });

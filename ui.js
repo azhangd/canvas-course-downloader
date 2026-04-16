@@ -13,23 +13,49 @@ function showToast(message, type = "info") {
   const existing = document.getElementById("cd-toast");
   if (existing) existing.remove();
 
+  const accents = {
+    info:    { fg: "#1f2937", accent: "#6b7280" },
+    success: { fg: "#1f2937", accent: "#16a34a" },
+    error:   { fg: "#1f2937", accent: "#dc2626" },
+  };
+  const a = accents[type] || accents.info;
+
+  const icons = {
+    info:    `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v4"/><circle cx="12" cy="16" r=".5" fill="currentColor"/></svg>`,
+    success: `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M5 13l4 4L19 7"/></svg>`,
+    error:   `<svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M15 9l-6 6M9 9l6 6"/></svg>`,
+  };
+
   const toast = document.createElement("div");
   toast.id = "cd-toast";
-  const colors = { info: "#2d3b45", success: "#1a7f37", error: "#cf222e" };
   toast.style.cssText = `
     position: fixed; bottom: 24px; right: 24px; z-index: 100001;
-    background: ${colors[type] || colors.info}; color: #fff;
-    padding: 12px 20px; border-radius: 8px; font-size: 14px;
+    background: #fff; color: ${a.fg};
+    padding: 12px 14px 12px 12px; border-radius: 12px; font-size: 13px;
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
-    box-shadow: 0 4px 12px rgba(0,0,0,0.2); max-width: 360px;
-    opacity: 0; transition: opacity 0.3s;
+    box-shadow: 0 12px 32px rgba(0,0,0,0.14), 0 2px 6px rgba(0,0,0,0.06);
+    border: 1px solid rgba(0,0,0,0.04);
+    max-width: 360px;
+    display: flex; align-items: flex-start; gap: 10px;
+    opacity: 0; transform: translateY(6px);
+    transition: opacity 0.2s, transform 0.2s;
+    letter-spacing: -0.005em;
   `;
-  toast.textContent = message;
+  toast.innerHTML = `
+    <span style="flex-shrink:0;color:${a.accent};margin-top:1px;">${icons[type] || icons.info}</span>
+    <span style="flex:1;min-width:0;line-height:1.4;"></span>
+  `;
+  toast.querySelector("span:last-child").textContent = message;
+
   document.body.appendChild(toast);
-  requestAnimationFrame(() => (toast.style.opacity = "1"));
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateY(0)";
+  });
   setTimeout(() => {
     toast.style.opacity = "0";
-    setTimeout(() => toast.remove(), 300);
+    toast.style.transform = "translateY(6px)";
+    setTimeout(() => toast.remove(), 200);
   }, 4000);
 }
 
@@ -43,50 +69,66 @@ function createDownloadPanel() {
   if (downloadPanel) return downloadPanel;
 
   const brand = getCanvasBrandColor();
+  const brandHover = darkenColor(brand);
 
   const panel = document.createElement("div");
   panel.id = "cd-download-panel";
   panel.style.cssText = `
     position: fixed; bottom: 24px; right: 24px; z-index: 100002;
-    width: 360px; background: #fff; border-radius: 10px;
-    box-shadow: 0 8px 32px rgba(0,0,0,0.18);
+    width: 360px; background: #fff; border-radius: 14px;
+    box-shadow: 0 16px 40px rgba(0,0,0,0.16), 0 2px 6px rgba(0,0,0,0.06);
     font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    color: #1f2937;
     overflow: hidden;
+    border: 1px solid rgba(0,0,0,0.04);
   `;
 
+  const iconBtn = `background:none;border:none;color:#6b7280;cursor:pointer;width:26px;height:26px;border-radius:7px;display:inline-flex;align-items:center;justify-content:center;transition:background 0.12s,color 0.12s;`;
+
   panel.innerHTML = `
-    <div id="cd-panel-header" style="padding:14px 16px;background:${brand};color:#fff;display:flex;justify-content:space-between;align-items:center;">
-      <span id="cd-panel-title" style="font-weight:600;font-size:14px;">Downloading...</span>
-      <div style="display:flex;gap:8px;align-items:center;">
-        <button id="cd-panel-minimize" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;padding:0;line-height:1;" title="Minimize">&#8722;</button>
-        <button id="cd-panel-close" style="background:none;border:none;color:#fff;cursor:pointer;font-size:18px;padding:0;line-height:1;" title="Close">&times;</button>
+    <div id="cd-panel-header" style="padding:14px 16px 10px;display:flex;justify-content:space-between;align-items:center;gap:10px;">
+      <div style="display:flex;align-items:center;gap:10px;min-width:0;">
+        <div style="width:26px;height:26px;border-radius:7px;background:${brand};display:inline-flex;align-items:center;justify-content:center;flex-shrink:0;">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="#fff" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M12 4v12"/><path d="M6 12l6 6 6-6"/><path d="M5 20h14"/>
+          </svg>
+        </div>
+        <span id="cd-panel-title" style="font-weight:600;font-size:13.5px;color:#1f2937;letter-spacing:-0.005em;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">Downloading...</span>
+      </div>
+      <div style="display:flex;gap:2px;align-items:center;flex-shrink:0;">
+        <button id="cd-panel-minimize" style="${iconBtn}" title="Minimize" aria-label="Minimize">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>
+        </button>
+        <button id="cd-panel-close" style="${iconBtn}" title="Close" aria-label="Close">
+          <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M18 6L6 18M6 6l12 12"/></svg>
+        </button>
       </div>
     </div>
     <div id="cd-panel-body">
-      <div style="padding:12px 16px;">
-        <div id="cd-panel-current" style="font-size:12px;color:#6b7b8d;margin-bottom:8px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
-        <div style="background:#e5e5e5;border-radius:4px;height:6px;overflow:hidden;">
-          <div id="cd-panel-bar" style="background:${brand};height:100%;border-radius:4px;transition:width 0.3s;width:0%;"></div>
+      <div style="padding:2px 16px 14px;">
+        <div id="cd-panel-current" style="font-size:12px;color:#6b7280;margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"></div>
+        <div style="background:#f3f4f6;border-radius:999px;height:6px;overflow:hidden;">
+          <div id="cd-panel-bar" style="background:${brand};height:100%;border-radius:999px;transition:width 0.3s;width:0%;"></div>
         </div>
-        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:12px;color:#6b7b8d;">
+        <div style="display:flex;justify-content:space-between;margin-top:8px;font-size:11.5px;color:#6b7280;">
           <span id="cd-panel-stats"></span>
-          <span id="cd-panel-pct"></span>
+          <span id="cd-panel-pct" style="font-weight:600;color:#1f2937;"></span>
         </div>
       </div>
-      <div id="cd-panel-actions" style="padding:0 16px 12px;display:flex;gap:8px;">
-        <button id="cd-panel-cancel" style="background:none;border:1px solid #ddd;border-radius:4px;padding:6px 12px;font-size:12px;cursor:pointer;color:#666;">Cancel</button>
+      <div id="cd-panel-actions" style="padding:0 16px 14px;display:flex;gap:8px;">
+        <button id="cd-panel-cancel" style="font-family:inherit;background:none;border:none;border-radius:7px;padding:6px 10px;font-size:12.5px;font-weight:500;cursor:pointer;color:#6b7280;transition:background 0.12s,color 0.12s;">Cancel</button>
       </div>
-      <div id="cd-panel-failed-section" style="display:none;padding:0 16px 12px;">
+      <div id="cd-panel-failed-section" style="display:none;padding:0 16px 14px;">
         <details>
-          <summary style="font-size:12px;color:#cf222e;cursor:pointer;font-weight:500;">Failed files</summary>
-          <div id="cd-panel-failed-list" style="max-height:120px;overflow-y:auto;margin-top:4px;font-size:11px;color:#666;"></div>
+          <summary style="font-size:12px;color:#b91c1c;cursor:pointer;font-weight:500;">Failed files</summary>
+          <div id="cd-panel-failed-list" style="max-height:120px;overflow-y:auto;margin-top:6px;font-size:11px;color:#6b7280;"></div>
         </details>
       </div>
-      <div id="cd-panel-done" style="display:none;padding:12px 16px;text-align:center;">
-        <div id="cd-panel-summary" style="font-size:14px;font-weight:500;color:#2d3b45;"></div>
-        <div style="margin-top:8px;display:flex;gap:8px;justify-content:center;">
-          <button id="cd-panel-retry" style="display:none;background:${brand};color:#fff;border:none;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer;font-weight:500;">Retry Failed</button>
-          <button id="cd-panel-dismiss" style="background:none;border:1px solid #ddd;border-radius:4px;padding:6px 14px;font-size:12px;cursor:pointer;color:#666;">Dismiss</button>
+      <div id="cd-panel-done" style="display:none;padding:14px 16px 16px;text-align:center;">
+        <div id="cd-panel-summary" style="font-size:13.5px;font-weight:500;color:#1f2937;"></div>
+        <div style="margin-top:12px;display:flex;gap:8px;justify-content:center;">
+          <button id="cd-panel-retry" style="display:none;font-family:inherit;background:${brand};color:#fff;border:none;border-radius:8px;padding:7px 14px;font-size:12.5px;font-weight:600;cursor:pointer;transition:background 0.12s;">Retry failed</button>
+          <button id="cd-panel-dismiss" style="font-family:inherit;background:none;border:none;border-radius:7px;padding:7px 14px;font-size:12.5px;font-weight:500;cursor:pointer;color:#6b7280;transition:background 0.12s,color 0.12s;">Dismiss</button>
         </div>
       </div>
     </div>`;
@@ -94,13 +136,28 @@ function createDownloadPanel() {
   document.body.appendChild(panel);
   downloadPanel = panel;
 
-  // Minimize toggle
+  // Minimize toggle (swap minus <-> plus icon)
+  const MINUS_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M5 12h14"/></svg>`;
+  const PLUS_SVG = `<svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>`;
   let minimized = false;
   panel.querySelector("#cd-panel-minimize").addEventListener("click", () => {
     minimized = !minimized;
     panel.querySelector("#cd-panel-body").style.display = minimized ? "none" : "";
-    panel.querySelector("#cd-panel-minimize").innerHTML = minimized ? "&#43;" : "&#8722;";
+    panel.querySelector("#cd-panel-minimize").innerHTML = minimized ? PLUS_SVG : MINUS_SVG;
   });
+
+  // Icon/ghost button hover states (inline since the panel is all inline-styled)
+  panel.querySelectorAll("#cd-panel-minimize, #cd-panel-close").forEach((btn) => {
+    btn.addEventListener("mouseenter", () => { btn.style.background = "#f9fafb"; btn.style.color = "#1f2937"; });
+    btn.addEventListener("mouseleave", () => { btn.style.background = "none"; btn.style.color = "#6b7280"; });
+  });
+  panel.querySelectorAll("#cd-panel-cancel, #cd-panel-dismiss").forEach((btn) => {
+    btn.addEventListener("mouseenter", () => { btn.style.background = "#f9fafb"; btn.style.color = "#1f2937"; });
+    btn.addEventListener("mouseleave", () => { btn.style.background = "none"; btn.style.color = "#6b7280"; });
+  });
+  const retryBtn = panel.querySelector("#cd-panel-retry");
+  retryBtn.addEventListener("mouseenter", () => { retryBtn.style.background = brandHover; });
+  retryBtn.addEventListener("mouseleave", () => { retryBtn.style.background = brand; });
 
   // Close
   panel.querySelector("#cd-panel-close").addEventListener("click", () => {
@@ -179,137 +236,265 @@ function getOverlayStyles() {
   return `
     .cd-overlay {
       position: fixed; inset: 0;
-      background: rgba(0,0,0,0.5);
+      background: rgba(0,0,0,0.45);
       z-index: 100000;
       display: flex; align-items: center; justify-content: center;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      color: #1f2937;
     }
     .cd-modal {
-      background: #fff; border-radius: 12px;
+      background: #fff; border-radius: 16px;
       width: 560px; max-height: 80vh;
       display: flex; flex-direction: column;
-      box-shadow: 0 20px 60px rgba(0,0,0,0.3);
+      box-shadow: 0 24px 64px rgba(0,0,0,0.28), 0 2px 8px rgba(0,0,0,0.08);
+      overflow: hidden;
     }
     .cd-modal *:focus-visible {
-      outline: 2px solid ${brand}; outline-offset: 2px; border-radius: 3px;
+      outline: 2px solid ${brand}; outline-offset: 2px; border-radius: 6px;
     }
+
+    /* Header */
     .cd-modal-header {
-      padding: 20px 24px 16px;
-      border-bottom: 1px solid #e5e5e5;
+      padding: 18px 20px 14px;
       display: flex; justify-content: space-between; align-items: center;
     }
-    .cd-modal-header h2 { margin: 0; font-size: 18px; font-weight: 700; color: #2d3b45; display: flex; align-items: center; gap: 10px; }
-    .cd-modal-header h2 img { width: 28px; height: 28px; border-radius: 5px; }
-    .cd-close-btn {
-      background: none; border: none; font-size: 24px;
-      cursor: pointer; color: #6b7b8d; padding: 4px 8px; line-height: 1;
-      border-radius: 4px; transition: background 0.15s;
+    .cd-brand { display: flex; align-items: center; gap: 12px; }
+    .cd-brand-mark {
+      width: 32px; height: 32px; border-radius: 8px;
+      display: block; flex-shrink: 0;
     }
-    .cd-close-btn:hover { color: #2d3b45; background: #f0f0f0; }
-    .cd-header-actions { display: flex; align-items: center; gap: 4px; }
-    .cd-settings-btn {
-      background: none; border: none; cursor: pointer;
-      color: #6b7b8d; padding: 6px; line-height: 0;
-      border-radius: 4px; transition: background 0.15s, color 0.15s;
+    .cd-brand-title { font-size: 15px; font-weight: 600; color: #1f2937; letter-spacing: -0.01em; }
+    .cd-header-actions { display: flex; align-items: center; gap: 2px; }
+    .cd-icon-btn {
+      width: 32px; height: 32px; border-radius: 8px;
+      background: none; border: none; color: #6b7280; cursor: pointer;
       display: inline-flex; align-items: center; justify-content: center;
+      transition: background 0.12s, color 0.12s;
     }
-    .cd-settings-btn:hover { color: #2d3b45; background: #f0f0f0; }
-    .cd-settings-btn svg { width: 18px; height: 18px; }
+    .cd-icon-btn:hover { background: #f9fafb; color: #1f2937; }
+    .cd-icon-btn svg { width: 16px; height: 16px; }
+
+    /* Tabs: segmented control */
     .cd-tabs {
-      display: flex; border-bottom: 1px solid #e5e5e5;
+      margin: 0 20px 16px; padding: 4px;
+      background: #f3f4f6; border-radius: 10px;
+      display: flex; gap: 2px;
     }
     .cd-tab {
-      flex: 1; padding: 10px 16px; font-size: 13px; font-weight: 500;
-      background: none; border: none; border-bottom: 2px solid transparent;
-      cursor: pointer; color: #6b7b8d; transition: all 0.15s;
+      flex: 1; padding: 8px 12px;
+      background: none; border: none; border-radius: 7px;
+      font-size: 13px; font-weight: 500; color: #6b7280;
+      cursor: pointer; font-family: inherit;
+      transition: background 0.15s, color 0.15s, box-shadow 0.15s;
     }
-    .cd-tab:hover { color: #2d3b45; background: #fafafa; }
-    .cd-tab.active { color: ${brand}; border-bottom-color: ${brand}; font-weight: 600; }
-    .cd-search {
-      padding: 12px 24px; border-bottom: 1px solid #e5e5e5;
+    .cd-tab:hover { color: #1f2937; }
+    .cd-tab.active {
+      background: #fff; color: #1f2937; font-weight: 600;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.04);
     }
-    .cd-search input {
-      width: 100%; box-sizing: border-box; padding: 10px 14px;
-      border: 1px solid #ddd; border-radius: 8px; font-size: 13px;
-      font-family: inherit; outline: none; transition: border-color 0.15s;
+
+    /* Search */
+    .cd-modal .cd-search { padding: 0 20px 14px; position: relative; }
+    .cd-modal .cd-search svg {
+      position: absolute; left: 34px; top: 12px;
+      width: 16px; height: 16px;
+      color: #9ca3af; pointer-events: none;
     }
-    .cd-search input:focus { border-color: ${brand}; box-shadow: 0 0 0 3px ${brand}22; }
-    .cd-controls {
-      padding: 10px 24px; border-bottom: 1px solid #e5e5e5;
-      display: flex; gap: 12px; align-items: center;
+    .cd-modal .cd-search input,
+    .cd-modal .cd-search input[type="text"] {
+      width: 100%; box-sizing: border-box;
+      height: 40px; line-height: 1.4;
+      padding: 0 14px 0 40px;
+      margin: 0;
+      border: 1px solid #e5e7eb; border-radius: 10px;
+      font-size: 13.5px; font-family: inherit;
+      background: #fff; color: #1f2937; outline: none;
+      box-shadow: none;
+      transition: border-color 0.15s, box-shadow 0.15s;
     }
-    .cd-controls button {
-      background: none; border: none; color: ${brand};
-      cursor: pointer; font-size: 13px; padding: 2px 0; text-decoration: underline;
+    .cd-modal .cd-search input::placeholder { color: #9ca3af; opacity: 1; }
+    .cd-modal .cd-search input:focus,
+    .cd-modal .cd-search input[type="text"]:focus {
+      border-color: ${brand};
+      box-shadow: 0 0 0 3px ${brand}1f;
     }
-    .cd-controls button:hover { color: ${brandHover}; }
-    .cd-course-list { flex: 1; overflow-y: auto; padding: 4px 24px 8px; }
+
+    /* List-wide controls (above course list) */
+    .cd-list-controls {
+      display: flex; gap: 4px; align-items: center;
+      padding: 0 20px 8px;
+    }
+    .cd-list-controls .cd-ghost-btn { padding: 5px 10px; font-size: 12px; }
+
+    /* Course list */
+    .cd-course-list { flex: 1; overflow-y: auto; padding: 4px 12px 8px; }
     .cd-empty-state {
-      padding: 40px 24px; text-align: center; color: #6b7b8d;
+      padding: 48px 24px; text-align: center; color: #6b7280;
     }
     .cd-empty-state .cd-empty-icon { font-size: 32px; margin-bottom: 12px; }
-    .cd-empty-state .cd-empty-text { font-size: 14px; font-weight: 500; color: #2d3b45; margin-bottom: 4px; }
+    .cd-empty-state .cd-empty-text { font-size: 14px; font-weight: 600; color: #1f2937; margin-bottom: 4px; }
     .cd-empty-state .cd-empty-hint { font-size: 12px; }
-    .cd-course-item {
-      display: flex; align-items: center;
-      padding: 10px 8px; border-radius: 8px;
-      margin: 2px 0; transition: background 0.1s;
-    }
-    .cd-course-item:hover { background: #f8f9fa; }
-    .cd-course-item input[type="checkbox"] {
-      margin-right: 12px; width: 16px; height: 16px;
-      cursor: pointer; accent-color: ${brand}; flex-shrink: 0;
-    }
-    .cd-course-item label { cursor: pointer; flex: 1; min-width: 0; }
-    .cd-course-name { font-size: 14px; font-weight: 500; color: #2d3b45; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-    .cd-course-code { font-size: 12px; color: #6b7b8d; margin-top: 2px; }
-    .cd-term-group { margin-top: 2px; }
+
+    /* Term group */
+    .cd-term-group { padding: 8px 0; }
     .cd-term-header {
       display: flex; align-items: center; justify-content: space-between;
-      padding: 10px 8px; cursor: pointer; user-select: none;
-      border-radius: 6px; transition: background 0.1s;
+      padding: 6px 8px;
     }
-    .cd-term-header:hover { background: #f8f9fa; }
-    .cd-term-name { font-size: 13px; font-weight: 600; color: #2d3b45; }
-    .cd-term-count { font-size: 11px; color: #6b7b8d; margin-left: 6px; font-weight: 400; }
-    .cd-term-toggle { font-size: 12px; color: #6b7b8d; transition: transform 0.2s; }
-    .cd-term-select { font-size: 11px; color: ${brand}; cursor: pointer; background: none; border: none; padding: 2px 4px; text-decoration: underline; border-radius: 3px; }
-    .cd-term-select:hover { color: ${brandHover}; }
+    .cd-term-label { display: flex; align-items: center; gap: 8px; }
+    .cd-term-name {
+      font-size: 10.5px; font-weight: 600; color: #6b7280;
+      text-transform: uppercase; letter-spacing: 0.08em;
+    }
+    .cd-term-count {
+      font-size: 10.5px; font-weight: 600; color: #6b7280;
+      background: #f3f4f6; padding: 2px 7px; border-radius: 999px;
+      letter-spacing: 0;
+    }
+    .cd-term-actions { display: flex; align-items: center; gap: 4px; }
+    .cd-ghost-btn {
+      font-family: inherit; font-size: 12px; font-weight: 500;
+      color: #6b7280; background: none; border: none;
+      padding: 4px 8px; border-radius: 6px; cursor: pointer;
+      transition: background 0.12s, color 0.12s;
+    }
+    .cd-ghost-btn:hover { background: #f9fafb; color: #1f2937; }
+    .cd-chevron-btn {
+      width: 26px; height: 26px; border-radius: 6px;
+      background: none; border: none; color: #9ca3af; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: background 0.12s, color 0.12s, transform 0.2s;
+    }
+    .cd-chevron-btn:hover { background: #f9fafb; color: #1f2937; }
+    .cd-chevron-btn svg { width: 14px; height: 14px; }
+    .cd-chevron-btn.collapsed { transform: rotate(-90deg); }
+
+    /* Course row */
+    .cd-course-item {
+      border-radius: 10px;
+      position: relative;
+      transition: background 0.1s;
+    }
+    .cd-course-item:hover { background: #f9fafb; }
+    .cd-course-item.cd-selected { background: ${brand}14; }
+    .cd-course-item.cd-selected::before {
+      content: ""; position: absolute;
+      left: 0; top: 0; bottom: 0;
+      width: 3px; background: ${brand};
+    }
+    /* Merge adjacent selected rows into a single visual block */
+    .cd-course-item.cd-selected:has(+ .cd-course-item.cd-selected) {
+      border-bottom-left-radius: 0;
+      border-bottom-right-radius: 0;
+    }
+    .cd-course-item.cd-selected + .cd-course-item.cd-selected {
+      border-top-left-radius: 0;
+      border-top-right-radius: 0;
+    }
+    .cd-course-item input[type="checkbox"] {
+      position: absolute; opacity: 0; pointer-events: none;
+    }
+    .cd-course-item label {
+      display: flex; align-items: center; gap: 12px;
+      padding: 10px 12px;
+      cursor: pointer; min-width: 0;
+    }
+    .cd-checkbox {
+      width: 18px; height: 18px; border: 1.5px solid #d1d5db;
+      border-radius: 5px; background: #fff;
+      display: inline-flex; align-items: center; justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.12s, border-color 0.12s;
+    }
+    .cd-checkbox svg {
+      width: 12px; height: 12px; color: #fff;
+      opacity: 0; transition: opacity 0.12s;
+    }
+    .cd-course-item.cd-selected .cd-checkbox {
+      background: ${brand}; border-color: ${brand};
+    }
+    .cd-course-item.cd-selected .cd-checkbox svg { opacity: 1; }
+    .cd-course-item:hover:not(.cd-selected) .cd-checkbox { border-color: ${brand}; }
+    .cd-course-meta { flex: 1; min-width: 0; display: block; }
+    .cd-course-name {
+      display: block;
+      font-size: 13.5px; font-weight: 500; color: #1f2937;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+      letter-spacing: -0.005em;
+    }
+    .cd-course-code {
+      display: block;
+      font-size: 11px; color: #9ca3af; margin-top: 1px;
+      font-family: ui-monospace, "SF Mono", Menlo, monospace;
+    }
+
+    /* Footer */
     .cd-modal-footer {
-      padding: 16px 24px; border-top: 1px solid #e5e5e5;
-      display: flex; justify-content: space-between; align-items: center;
+      padding: 14px 20px;
+      display: flex; align-items: center; justify-content: space-between;
+      gap: 12px;
+      background: linear-gradient(to bottom, transparent, #fafafa 30%);
+      border-top: 1px solid #e5e7eb;
     }
+    .cd-footer-count {
+      display: flex; align-items: center; gap: 8px;
+      font-size: 13px; color: #6b7280;
+    }
+    .cd-footer-count strong { color: #1f2937; font-weight: 600; }
+    .cd-footer-actions { display: flex; gap: 8px; align-items: center; }
+    .cd-text-btn {
+      font-family: inherit; font-size: 12.5px; font-weight: 500;
+      color: #6b7280; background: none; border: none;
+      padding: 6px 10px; border-radius: 7px; cursor: pointer;
+    }
+    .cd-text-btn:hover { background: #f9fafb; color: #1f2937; }
     .cd-download-btn {
-      background: ${brand}; color: #fff; border: none; border-radius: 8px;
-      padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
-      transition: background 0.15s, transform 0.1s;
+      background: ${brand}; color: #fff; border: none; border-radius: 9px;
+      padding: 9px 18px; font-size: 13.5px; font-weight: 600;
+      cursor: pointer; font-family: inherit;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: background 0.12s, transform 0.08s;
     }
     .cd-download-btn:hover { background: ${brandHover}; }
     .cd-download-btn:active { transform: scale(0.98); }
-    .cd-download-btn:disabled { background: #ccc; cursor: not-allowed; transform: none; }
-    .cd-selected-count { font-size: 13px; color: #6b7b8d; }
-    .cd-progress { padding: 20px 24px; border-top: 1px solid #e5e5e5; font-size: 13px; color: #2d3b45; }
-    .cd-progress-bar-bg { background: #e5e5e5; border-radius: 6px; height: 8px; margin-top: 10px; overflow: hidden; }
-    .cd-progress-bar { background: ${brand}; height: 100%; border-radius: 6px; transition: width 0.3s; width: 0%; }
-    .cd-progress-status { margin-top: 8px; font-size: 12px; color: #6b7b8d; }
-    .cd-finish-screen { padding: 32px 24px; text-align: center; display: none; }
+    .cd-download-btn:disabled {
+      background: #e5e7eb; color: #9ca3af; cursor: not-allowed; transform: none;
+    }
+    .cd-download-btn svg { width: 14px; height: 14px; }
+
+    /* Inline progress + finish screens */
+    .cd-progress { padding: 24px 24px 20px; font-size: 13px; color: #1f2937; }
+    .cd-progress-bar-bg { background: #f3f4f6; border-radius: 999px; height: 6px; margin-top: 12px; overflow: hidden; }
+    .cd-progress-bar { background: ${brand}; height: 100%; border-radius: 999px; transition: width 0.3s; width: 0%; }
+    .cd-progress-status { margin-top: 8px; font-size: 12px; color: #6b7280; }
+    .cd-finish-screen { padding: 36px 24px 28px; text-align: center; display: none; }
     .cd-finish-icon { font-size: 40px; margin-bottom: 12px; }
-    .cd-finish-title { font-size: 18px; font-weight: 600; color: #2d3b45; margin-bottom: 4px; }
-    .cd-finish-subtitle { font-size: 13px; color: #6b7b8d; margin-bottom: 16px; }
+    .cd-finish-title { font-size: 17px; font-weight: 600; color: #1f2937; margin-bottom: 4px; letter-spacing: -0.01em; }
+    .cd-finish-subtitle { font-size: 13px; color: #6b7280; margin-bottom: 18px; }
     .cd-finish-btn {
-      background: ${brand}; color: #fff; border: none; border-radius: 8px;
-      padding: 10px 24px; font-size: 14px; font-weight: 600; cursor: pointer;
+      background: ${brand}; color: #fff; border: none; border-radius: 9px;
+      padding: 9px 22px; font-size: 13.5px; font-weight: 600; cursor: pointer;
+      font-family: inherit;
     }
     .cd-finish-btn:hover { background: ${brandHover}; }
-    .cd-loading { padding: 48px 24px; text-align: center; color: #6b7b8d; font-size: 14px; }
-    .cd-loading .cd-spinner { display: inline-block; width: 24px; height: 24px; border: 3px solid #e5e5e5; border-top-color: ${brand}; border-radius: 50%; animation: cd-spin 0.8s linear infinite; margin-bottom: 12px; }
-    @keyframes cd-spin { to { transform: rotate(360deg); } }
-    .cd-github-footer {
-      padding: 8px 24px 10px; text-align: center;
-      font-size: 10px; color: #bbb; line-height: 1.5;
+
+    /* Loading */
+    .cd-loading { padding: 56px 24px; text-align: center; color: #6b7280; font-size: 13px; }
+    .cd-loading .cd-spinner {
+      display: inline-block; width: 24px; height: 24px;
+      border: 3px solid #f3f4f6; border-top-color: ${brand};
+      border-radius: 50%; animation: cd-spin 0.8s linear infinite;
+      margin-bottom: 12px;
     }
-    .cd-github-footer a { color: #999; text-decoration: none; }
-    .cd-github-footer a:hover { text-decoration: underline; color: #666; }
+    @keyframes cd-spin { to { transform: rotate(360deg); } }
+
+    /* Micro footer */
+    .cd-github-footer {
+      padding: 6px 20px 10px; text-align: center;
+      font-size: 10.5px; color: #9ca3af; background: #fafafa;
+    }
+    .cd-github-footer a { color: #9ca3af; text-decoration: none; }
+    .cd-github-footer a:hover { color: #6b7280; }
   `;
 }
 
@@ -334,15 +519,22 @@ async function openCourseSelector() {
   overlay.innerHTML = `
     <div class="cd-modal" role="document">
       <div class="cd-modal-header">
-        <h2><img src="${chrome.runtime.getURL("icons/icon-128.png")}" alt="">Course Downloader</h2>
+        <div class="cd-brand">
+          <img class="cd-brand-mark" src="${chrome.runtime.getURL("icons/icon-128.png")}" alt="">
+          <div class="cd-brand-title">Course Downloader</div>
+        </div>
         <div class="cd-header-actions">
-          <button class="cd-settings-btn" id="cd-settings" aria-label="Open settings" title="Settings">
+          <button class="cd-icon-btn" id="cd-settings" aria-label="Open settings" title="Settings">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <circle cx="12" cy="12" r="3"></circle>
               <path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"></path>
             </svg>
           </button>
-          <button class="cd-close-btn" id="cd-close" aria-label="Close">&times;</button>
+          <button class="cd-icon-btn" id="cd-close" aria-label="Close">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M18 6L6 18M6 6l12 12"/>
+            </svg>
+          </button>
         </div>
       </div>
       <div class="cd-tabs" role="tablist">
@@ -351,16 +543,31 @@ async function openCourseSelector() {
       </div>
       <div class="cd-loading" id="cd-loading"><div class="cd-spinner"></div><div>Loading courses...</div></div>
       <div class="cd-search" id="cd-search" style="display:none">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <circle cx="11" cy="11" r="7"/>
+          <path d="M21 21l-4.3-4.3"/>
+        </svg>
         <input type="text" id="cd-search-input" placeholder="Search courses..." aria-label="Search courses">
       </div>
-      <div class="cd-controls" id="cd-controls" style="display:none">
-        <button id="cd-select-all">Select All</button>
-        <button id="cd-deselect-all">Deselect All</button>
+      <div class="cd-list-controls" id="cd-list-controls" style="display:none">
+        <button class="cd-ghost-btn" id="cd-select-all" type="button">Select all</button>
+        <button class="cd-ghost-btn" id="cd-deselect-all" type="button">Deselect all</button>
       </div>
       <div class="cd-course-list" id="cd-course-list" style="display:none" role="list" aria-live="polite"></div>
       <div class="cd-modal-footer" id="cd-footer" style="display:none">
-        <span class="cd-selected-count" id="cd-selected-count" aria-live="polite">0 courses selected</span>
-        <button class="cd-download-btn" id="cd-download-btn" disabled>Download Selected</button>
+        <div class="cd-footer-count" aria-live="polite">
+          <span id="cd-selected-count"><strong>0</strong> selected</span>
+        </div>
+        <div class="cd-footer-actions">
+          <button class="cd-download-btn" id="cd-download-btn" disabled>
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M12 4v12"/>
+              <path d="M6 12l6 6 6-6"/>
+              <path d="M5 20h14"/>
+            </svg>
+            Download selected
+          </button>
+        </div>
       </div>
       <div class="cd-progress" id="cd-progress" style="display:none" aria-live="polite">
         <div id="cd-progress-text">Downloading...</div>
@@ -437,12 +644,12 @@ async function openCourseSelector() {
           <div class="cd-empty-text">No courses found</div>
           <div class="cd-empty-hint">${currentTab === "active" ? "No active enrollments. Try the Past Courses tab." : "No completed courses found."}</div>
         </div>`;
-      document.getElementById("cd-controls").style.display = "none";
+      document.getElementById("cd-list-controls").style.display = "none";
       document.getElementById("cd-footer").style.display = "none";
       return;
     }
 
-    document.getElementById("cd-controls").style.display = "flex";
+    document.getElementById("cd-list-controls").style.display = "flex";
     document.getElementById("cd-footer").style.display = "flex";
 
     // Group by term
@@ -471,15 +678,19 @@ async function openCourseSelector() {
 
       const header = document.createElement("div");
       header.className = "cd-term-header";
-      header.setAttribute("role", "button");
-      header.setAttribute("tabindex", "0");
-      header.setAttribute("aria-expanded", "true");
       header.innerHTML = `
-        <span><span class="cd-term-name">${termName}</span><span class="cd-term-count">(${termCourses.length})</span></span>
-        <span style="display:flex;gap:8px;align-items:center;">
-          <button class="cd-term-select" data-term-action="toggle" tabindex="0">Select all</button>
-          <span class="cd-term-toggle">&#9660;</span>
-        </span>`;
+        <div class="cd-term-label">
+          <span class="cd-term-name">${termName}</span>
+          <span class="cd-term-count">${termCourses.length}</span>
+        </div>
+        <div class="cd-term-actions">
+          <button class="cd-ghost-btn" data-term-action="toggle" type="button">Select all</button>
+          <button class="cd-chevron-btn" aria-label="Collapse term" aria-expanded="true" type="button">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M6 9l6 6 6-6"/>
+            </svg>
+          </button>
+        </div>`;
       group.appendChild(header);
 
       const courseContainer = document.createElement("div");
@@ -493,33 +704,39 @@ async function openCourseSelector() {
         item.innerHTML = `
           <input type="checkbox" id="cd-course-${course.id}" data-course-id="${course.id}" data-course-name="${course.name.replace(/"/g, "&quot;")}">
           <label for="cd-course-${course.id}">
-            <div class="cd-course-name">${course.name}</div>
-            <div class="cd-course-code">${course.course_code || ""}</div>
+            <span class="cd-checkbox" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3.5" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M5 12l5 5L20 7"/>
+              </svg>
+            </span>
+            <span class="cd-course-meta">
+              <span class="cd-course-name">${course.name}</span>
+              <span class="cd-course-code">${course.course_code || ""}</span>
+            </span>
           </label>`;
+
         courseContainer.appendChild(item);
       }
       group.appendChild(courseContainer);
       listEl.appendChild(group);
 
-      // Toggle collapse
-      const toggleCollapse = (e) => {
-        if (e.target.classList.contains("cd-term-select")) return;
-        if (e.type === "keydown" && e.key !== "Enter" && e.key !== " ") return;
-        if (e.type === "keydown") e.preventDefault();
-        const isHidden = courseContainer.style.display === "none";
-        courseContainer.style.display = isHidden ? "" : "none";
-        header.querySelector(".cd-term-toggle").textContent = isHidden ? "\u25BC" : "\u25B6";
-        header.setAttribute("aria-expanded", isHidden ? "true" : "false");
-      };
-      header.addEventListener("click", toggleCollapse);
-      header.addEventListener("keydown", toggleCollapse);
+      // Chevron collapse toggle
+      const chevronBtn = header.querySelector(".cd-chevron-btn");
+      chevronBtn.addEventListener("click", () => {
+        const collapsed = chevronBtn.classList.toggle("collapsed");
+        courseContainer.style.display = collapsed ? "none" : "";
+        chevronBtn.setAttribute("aria-expanded", collapsed ? "false" : "true");
+      });
 
-      // Select all in term
-      header.querySelector(".cd-term-select").addEventListener("click", (e) => {
-        e.stopPropagation();
-        const cbs = courseContainer.querySelectorAll("input[type='checkbox']:not(:disabled)");
-        const allChecked = Array.from(cbs).every((cb) => cb.checked);
-        cbs.forEach((cb) => (cb.checked = !allChecked));
+      // Per-term select all
+      header.querySelector(".cd-ghost-btn").addEventListener("click", () => {
+        const items = courseContainer.querySelectorAll(".cd-course-item");
+        const allSelected = Array.from(items).every((it) => it.classList.contains("cd-selected"));
+        items.forEach((it) => {
+          const cb = it.querySelector("input[type='checkbox']");
+          cb.checked = !allSelected;
+          it.classList.toggle("cd-selected", !allSelected);
+        });
         updateCount();
       });
     }
@@ -529,8 +746,12 @@ async function openCourseSelector() {
 
   const updateCount = () => {
     const listEl = document.getElementById("cd-course-list");
-    const n = listEl.querySelectorAll("input:checked").length;
-    document.getElementById("cd-selected-count").textContent = `${n} course${n !== 1 ? "s" : ""} selected`;
+    const total = listEl.querySelectorAll(".cd-course-item").length;
+    const n = listEl.querySelectorAll(".cd-course-item.cd-selected").length;
+    const countEl = document.getElementById("cd-selected-count");
+    countEl.innerHTML = n === 0
+      ? `<strong>0</strong> selected`
+      : `<strong>${n}</strong> of ${total} selected`;
     document.getElementById("cd-download-btn").disabled = n === 0;
   };
 
@@ -547,7 +768,7 @@ async function openCourseSelector() {
     listEl.style.display = "none";
     loading.style.display = "block";
     document.getElementById("cd-search").style.display = "none";
-    document.getElementById("cd-controls").style.display = "none";
+    document.getElementById("cd-list-controls").style.display = "none";
     document.getElementById("cd-footer").style.display = "none";
 
     try {
@@ -583,15 +804,25 @@ async function openCourseSelector() {
   });
 
   const listEl = document.getElementById("cd-course-list");
-  listEl.addEventListener("change", updateCount);
-  document.getElementById("cd-select-all").addEventListener("click", () => {
-    listEl.querySelectorAll("input:not(:disabled)").forEach((cb) => (cb.checked = true));
+
+  // Sync selected-class whenever any checkbox toggles (label click or programmatic).
+  listEl.addEventListener("change", (e) => {
+    if (e.target.tagName !== "INPUT") return;
+    const item = e.target.closest(".cd-course-item");
+    if (item) item.classList.toggle("cd-selected", e.target.checked);
     updateCount();
   });
-  document.getElementById("cd-deselect-all").addEventListener("click", () => {
-    listEl.querySelectorAll("input:not(:disabled)").forEach((cb) => (cb.checked = false));
+
+  const applyToAll = (selected) => {
+    listEl.querySelectorAll(".cd-course-item").forEach((it) => {
+      const cb = it.querySelector("input[type='checkbox']");
+      cb.checked = selected;
+      it.classList.toggle("cd-selected", selected);
+    });
     updateCount();
-  });
+  };
+  document.getElementById("cd-select-all").addEventListener("click", () => applyToAll(true));
+  document.getElementById("cd-deselect-all").addEventListener("click", () => applyToAll(false));
 
   // Bulk download handler
   document.getElementById("cd-download-btn").addEventListener("click", async () => {
@@ -602,8 +833,8 @@ async function openCourseSelector() {
     if (selected.length === 0) return;
 
     document.getElementById("cd-download-btn").disabled = true;
-    document.getElementById("cd-controls").style.display = "none";
     document.getElementById("cd-search").style.display = "none";
+    document.getElementById("cd-list-controls").style.display = "none";
     document.querySelector(".cd-tabs").style.display = "none";
     listEl.style.display = "none";
 
@@ -664,44 +895,55 @@ async function openCourseSelector() {
 function injectButton() {
   if (!isCanvas()) return;
 
+  const brand = getCanvasBrandColor();
+  const brandHover = darkenColor(brand);
+  const downloadIcon = `
+    <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true" style="flex-shrink:0;">
+      <path d="M12 4v12"/><path d="M6 12l6 6 6-6"/><path d="M5 20h14"/>
+    </svg>`;
+
+  const buildBtn = (id, label, marginBottom = "0") => {
+    const btn = document.createElement("button");
+    btn.id = id;
+    btn.innerHTML = `${downloadIcon}<span>${label}</span>`;
+    btn.style.cssText = `
+      display: inline-flex; align-items: center; gap: 7px;
+      background: ${brand}; color: #fff; border: none; border-radius: 8px;
+      padding: 7px 14px; font-size: 13.5px; font-weight: 600;
+      cursor: pointer; margin-left: 12px; margin-bottom: ${marginBottom};
+      font-family: inherit; letter-spacing: -0.005em;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+      transition: background 0.12s, transform 0.08s, box-shadow 0.12s;
+    `;
+    btn.addEventListener("mouseenter", () => {
+      btn.style.background = brandHover;
+      btn.style.boxShadow = "0 2px 6px rgba(0,0,0,0.12)";
+    });
+    btn.addEventListener("mouseleave", () => {
+      btn.style.background = brand;
+      btn.style.boxShadow = "0 1px 2px rgba(0,0,0,0.06)";
+    });
+    btn.addEventListener("mousedown", () => (btn.style.transform = "scale(0.97)"));
+    btn.addEventListener("mouseup", () => (btn.style.transform = ""));
+    return btn;
+  };
+
   if (getCourseId()) {
     // Course page — single download button
     if (document.getElementById("canvas-downloader-btn")) return;
-
     const anchor = findMountPoint(MOUNT_SELECTORS);
     if (!anchor) return;
 
-    const brand = getCanvasBrandColor();
-    const btn = document.createElement("button");
-    btn.id = "canvas-downloader-btn";
-    btn.textContent = "Download Course Content";
-    btn.style.cssText = `
-      background: ${brand}; color: #fff; border: none; border-radius: 6px;
-      padding: 6px 14px; font-size: 14px; cursor: pointer;
-      margin-left: 15px; font-family: inherit; font-weight: 600;
-    `;
-    btn.addEventListener("mouseenter", () => (btn.style.background = darkenColor(brand)));
-    btn.addEventListener("mouseleave", () => (btn.style.background = brand));
+    const btn = buildBtn("canvas-downloader-btn", "Download course content");
     btn.addEventListener("click", downloadCurrentCourse);
     anchor.appendChild(btn);
   } else {
     // Dashboard — multi-course selector button
     if (document.getElementById("canvas-downloader-home-btn")) return;
-
     const anchor = findMountPoint(DASHBOARD_SELECTORS);
     if (!anchor) return;
 
-    const brand = getCanvasBrandColor();
-    const btn = document.createElement("button");
-    btn.id = "canvas-downloader-home-btn";
-    btn.textContent = "Download Courses";
-    btn.style.cssText = `
-      background: ${brand}; color: #fff; border: none; border-radius: 6px;
-      padding: 8px 16px; font-size: 14px; font-weight: 600;
-      cursor: pointer; margin-left: 15px; margin-bottom: 10px; font-family: inherit;
-    `;
-    btn.addEventListener("mouseenter", () => (btn.style.background = darkenColor(brand)));
-    btn.addEventListener("mouseleave", () => (btn.style.background = brand));
+    const btn = buildBtn("canvas-downloader-home-btn", "Download courses", "10px");
     btn.addEventListener("click", openCourseSelector);
     anchor.appendChild(btn);
   }

@@ -4,111 +4,220 @@
   <meta charset="UTF-8">
   <title>Canvas Course Downloader</title>
   <style>
+    :root {
+      --brand: #e82429;
+      --brand-hover: #c51f23;
+      --brand-tint: #fef2f2;
+      --text: #1f2937;
+      --text-muted: #6b7280;
+      --text-faint: #9ca3af;
+      --border: #e5e7eb;
+      --surface: #ffffff;
+      --hover: #f9fafb;
+    }
     * { box-sizing: border-box; margin: 0; padding: 0; }
     body {
       width: 320px;
       padding: 16px;
       font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: var(--surface);
+      color: var(--text);
+      letter-spacing: -0.005em;
     }
+
+    /* Header */
     .header {
       display: flex;
       align-items: center;
       gap: 10px;
-      margin-bottom: 14px;
+      margin-bottom: 12px;
     }
-    .header img { width: 32px; height: 32px; border-radius: 6px; }
-    .header h2 { font-size: 15px; font-weight: 700; color: #2d3b45; }
+    .brand-mark {
+      width: 28px; height: 28px; border-radius: 7px;
+      flex-shrink: 0;
+      display: block;
+    }
+    .header h2 {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      letter-spacing: -0.01em;
+    }
+
+    /* Status pill */
     #status {
-      font-size: 13px;
-      margin-bottom: 2px;
-      color: #555;
-    }
-    .success { color: #1a7f37; font-weight: 600; }
-    .error   { color: #cf222e; }
-    .info-section {
-      background: #f8f9fa;
+      font-size: 12px;
+      color: var(--text-muted);
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 10px;
+      background: var(--hover);
       border-radius: 8px;
+    }
+    #status::before {
+      content: "";
+      width: 6px; height: 6px; border-radius: 999px;
+      background: var(--text-faint);
+      flex-shrink: 0;
+    }
+    #status.state-success { color: #15803d; background: #f0fdf4; }
+    #status.state-success::before { background: #22c55e; }
+    #status.state-error { color: #b91c1c; background: var(--brand-tint); }
+    #status.state-error::before { background: #dc2626; }
+
+    /* Info card */
+    .info-section {
+      background: var(--hover);
+      border-radius: 10px;
       padding: 10px 12px;
       margin-top: 10px;
       font-size: 12px;
-      color: #555;
-      line-height: 1.6;
+      color: var(--text-muted);
+      line-height: 1.5;
       display: none;
     }
     .info-section .info-label {
       font-weight: 600;
-      color: #2d3b45;
-      font-size: 11px;
+      color: var(--text-muted);
+      font-size: 10px;
       text-transform: uppercase;
-      letter-spacing: 0.3px;
-      margin-bottom: 4px;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
     }
     .info-section .info-row {
       display: flex;
       justify-content: space-between;
       align-items: center;
     }
-    .info-section .info-value { color: #2d3b45; font-weight: 500; }
+    .info-section .info-value {
+      color: var(--text);
+      font-weight: 500;
+      font-size: 13px;
+    }
+
+    /* Content tags */
     .content-tags {
       display: flex;
       flex-wrap: wrap;
       gap: 4px;
-      margin-top: 6px;
+      margin-top: 2px;
     }
     .content-tag {
-      background: #e8e8e8;
-      border-radius: 4px;
-      padding: 2px 7px;
-      font-size: 10px;
-      color: #555;
+      background: #f3f4f6;
+      border-radius: 999px;
+      padding: 2px 8px;
+      font-size: 10.5px;
+      color: var(--text-faint);
       font-weight: 500;
+      border: 1px solid transparent;
     }
-    .content-tag.active { background: #d4edda; color: #1a7f37; }
+    .content-tag.active {
+      background: var(--brand-tint);
+      color: #b91c1c;
+      border-color: #fecaca;
+    }
+
+    /* Queue */
     .queue-section {
-      background: #fff8e6;
-      border-radius: 8px;
+      background: #fffbeb;
+      border: 1px solid #fde68a;
+      border-radius: 10px;
       padding: 10px 12px;
       margin-top: 10px;
       font-size: 12px;
       display: none;
     }
-    .queue-section .queue-label { font-weight: 600; color: #856404; font-size: 11px; margin-bottom: 4px; }
-    .queue-bar-bg { background: #e5e5e5; border-radius: 4px; height: 5px; overflow: hidden; margin-top: 6px; }
-    .queue-bar { background: #e82429; height: 100%; border-radius: 4px; transition: width 0.3s; }
-    .queue-stats { margin-top: 4px; font-size: 11px; color: #856404; }
+    .queue-section .queue-label {
+      font-weight: 600;
+      color: #92400e;
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      margin-bottom: 6px;
+    }
+    .queue-bar-bg {
+      background: rgba(146, 64, 14, 0.15);
+      border-radius: 999px;
+      height: 5px;
+      overflow: hidden;
+      margin-top: 6px;
+    }
+    .queue-bar {
+      background: var(--brand);
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.3s;
+    }
+    .queue-stats {
+      margin-top: 6px;
+      font-size: 11px;
+      color: #92400e;
+    }
+
+    /* Primary button */
     button#downloadBtn {
       width: 100%;
-      padding: 10px;
-      background-color: #e82429;
-      color: white;
+      padding: 10px 14px;
+      background: var(--brand);
+      color: #fff;
       border: none;
-      border-radius: 8px;
+      border-radius: 9px;
       cursor: pointer;
-      margin-top: 12px;
-      font-size: 14px;
+      margin-top: 14px;
+      font-size: 13.5px;
       font-weight: 600;
-      transition: background 0.15s;
+      font-family: inherit;
+      letter-spacing: -0.005em;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 7px;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+      transition: background 0.12s, transform 0.08s, box-shadow 0.12s;
     }
-    button#downloadBtn:hover { background-color: #c51f23; }
-    button#downloadBtn:disabled { background-color: #ccc; cursor: not-allowed; }
+    button#downloadBtn:hover {
+      background: var(--brand-hover);
+      box-shadow: 0 2px 6px rgba(0,0,0,0.12);
+    }
+    button#downloadBtn:active { transform: scale(0.98); }
+    button#downloadBtn:disabled {
+      background: var(--border);
+      color: var(--text-faint);
+      cursor: not-allowed;
+      box-shadow: none;
+    }
+    button#downloadBtn svg { width: 14px; height: 14px; }
+
+    /* Footer */
     .footer {
       margin-top: 12px;
-      padding-top: 8px;
-      border-top: 1px solid #eee;
-      font-size: 11px;
-      color: #999;
+      padding-top: 10px;
+      border-top: 1px solid var(--border);
+      font-size: 10.5px;
+      color: var(--text-faint);
       text-align: center;
       line-height: 1.6;
+      display: flex;
+      justify-content: center;
+      gap: 10px;
+      flex-wrap: wrap;
     }
-    .footer a { color: #e82429; text-decoration: none; }
-    .footer a:hover { text-decoration: underline; }
+    .footer a {
+      color: var(--text-muted);
+      text-decoration: none;
+      transition: color 0.12s;
+    }
+    .footer a:hover { color: var(--text); }
+    .footer .sep { color: var(--text-faint); opacity: 0.5; }
   </style>
 </head>
 <body>
   <div class="header">
-    <img src="icons/icon-128.png" alt="">
-    <h2>Canvas Course Downloader</h2>
+    <img class="brand-mark" src="icons/icon-128.png" alt="">
+    <h2>Course Downloader</h2>
   </div>
+
   <div id="status">Checking page...</div>
 
   <div class="info-section" id="courseInfo">
@@ -116,7 +225,7 @@
       <span id="courseName"></span>
     </div>
     <div id="contentTypesRow">
-      <div class="info-label" style="margin-top:8px;">Exporting</div>
+      <div class="info-label" style="margin-top:10px;">Exporting</div>
       <div class="content-tags" id="contentTags"></div>
     </div>
   </div>
@@ -128,12 +237,19 @@
     <div class="queue-stats" id="queueStats"></div>
   </div>
 
-  <button id="downloadBtn" disabled>Download Course Content</button>
+  <button id="downloadBtn" disabled>
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+      <path d="M12 4v12"/><path d="M6 12l6 6 6-6"/><path d="M5 20h14"/>
+    </svg>
+    <span id="downloadBtnLabel">Download Course Content</span>
+  </button>
 
   <div class="footer">
-    <a href="#" id="settingsLink">Settings</a> &middot;
-    <a href="https://github.com/jasp-nerd/canvas-course-downloader" target="_blank">⭐ GitHub</a> &middot;
-    <a href="https://chromewebstore.google.com/detail/mmnmcnffbkcnhcjiidmdnaclpfeekiol" target="_blank">⭐ Rate</a>
+    <a href="#" id="settingsLink">Settings</a>
+    <span class="sep">·</span>
+    <a href="https://github.com/jasp-nerd/canvas-course-downloader" target="_blank">⭐ GitHub</a>
+    <span class="sep">·</span>
+    <a href="https://chromewebstore.google.com/detail/mmnmcnffbkcnhcjiidmdnaclpfeekiol" target="_blank">Rate</a>
   </div>
   <script src="popup.js"></script>
 </body>
