@@ -68,6 +68,12 @@ function notifyCompletion() {
     title: "Canvas Course Downloader",
     message: `Downloads finished: ${completed} succeeded${failed > 0 ? `, ${failed} failed` : ""}.`,
   });
+
+  if (completed > 0) {
+    chrome.storage.local.get({ completedSessions: 0 }, ({ completedSessions }) => {
+      chrome.storage.local.set({ completedSessions: completedSessions + 1 });
+    });
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -135,6 +141,10 @@ function processQueue() {
         nextJob.error = chrome.runtime.lastError?.message || "Download failed to start";
         broadcastStatus();
         scheduleNext();
+      } else if (cancelled) {
+        // User cancelled while this job was mid-handshake with chrome.downloads.
+        // Cancel the started download immediately so the file isn't saved.
+        chrome.downloads.cancel(downloadId);
       } else {
         nextJob.chromeDownloadId = downloadId;
         chromeIdToJob.set(downloadId, nextJob);
@@ -222,11 +232,13 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   } else if (message.type === "CANCEL_DOWNLOADS") {
     cancelled = true;
     const activeJob = jobs.find((j) => j.state === STATE.DOWNLOADING);
-    if (activeJob?.chromeDownloadId) {
-      chrome.downloads.cancel(activeJob.chromeDownloadId);
+    if (activeJob) {
+      if (activeJob.chromeDownloadId) {
+        chrome.downloads.cancel(activeJob.chromeDownloadId);
+        chromeIdToJob.delete(activeJob.chromeDownloadId);
+      }
       activeJob.state = STATE.FAILED;
       activeJob.error = "Cancelled";
-      chromeIdToJob.delete(activeJob.chromeDownloadId);
     }
     jobs
       .filter((j) => j.state === STATE.QUEUED)

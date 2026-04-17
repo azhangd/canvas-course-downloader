@@ -31,10 +31,12 @@ const CANVAS_SIGNALS = [
 /** Minimum number of Canvas-specific signals required for detection on non-Instructure domains. */
 const CANVAS_SIGNAL_THRESHOLD = 2;
 
-/** Breadcrumb / header selectors for button injection, tried in order. */
+/** Breadcrumb / header selectors for button injection, tried in order.
+ * Prefer the flex container that wraps both the hamburger and the breadcrumbs
+ * so the button sits inline next to the course code. */
 const MOUNT_SELECTORS = [
-  "#breadcrumbs",
   ".ic-app-nav-toggle-and-crumbs",
+  "#breadcrumbs",
   ".ic-app-crumbs",
 ];
 

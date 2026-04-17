@@ -192,10 +192,16 @@
       display: flex;
       align-items: center;
       gap: 12px;
-      margin-top: 8px;
-      padding: 14px 0 8px;
+      padding: 12px 16px;
+      margin-bottom: 16px;
+      background: rgba(244, 245, 247, 0.82);
+      backdrop-filter: saturate(180%) blur(14px);
+      -webkit-backdrop-filter: saturate(180%) blur(14px);
+      border-radius: 14px;
+      box-shadow: 0 1px 3px rgba(0,0,0,0.04), inset 0 0 0 1px rgba(0,0,0,0.05);
       position: sticky;
-      bottom: 0;
+      bottom: 16px;
+      z-index: 5;
     }
     .save-btn {
       background: var(--brand);
@@ -232,6 +238,19 @@
       background: #22c55e;
     }
     .save-status.visible { opacity: 1; }
+
+    /* About */
+    .about-card .about-text {
+      font-size: 12.5px;
+      color: var(--text-muted);
+      line-height: 1.6;
+    }
+    .about-card a {
+      color: var(--brand);
+      font-weight: 500;
+      text-decoration: none;
+    }
+    .about-card a:hover { text-decoration: underline; }
   </style>
 </head>
 <body>
@@ -315,6 +334,17 @@
   <div class="save-bar">
     <button class="save-btn" id="save-btn">Save Settings</button>
     <span class="save-status" id="save-status">Settings saved</span>
+  </div>
+
+  <div class="card about-card">
+    <h2>About</h2>
+    <p class="about-text">
+      Canvas Course Downloader is free and <a href="https://github.com/jasp-nerd/canvas-course-downloader" target="_blank">open source on GitHub</a>.
+      All downloads happen locally in your browser — nothing is sent to a server.
+    </p>
+    <p class="about-text" style="margin-top:8px;">
+      Found a bug or have an idea? <a href="https://github.com/jasp-nerd/canvas-course-downloader/issues/new" target="_blank">Open an issue</a> or star the repo to support the project.
+    </p>
   </div>
 
   <script src="options.js"></script>

@@ -45,6 +45,8 @@ async function downloadAsZip(files, courseName, settings, log) {
   createDownloadPanel();
 
   for (const file of files) {
+    if (downloadCancelled) break;
+
     const filePath = `${file.path}${file.filename}`;
 
     updateDownloadPanel({
@@ -72,6 +74,15 @@ async function downloadAsZip(files, courseName, settings, log) {
     }
   }
 
+  if (downloadCancelled) {
+    log("Cancelled before ZIP was generated.");
+    updateDownloadPanel({
+      total: files.length, completed, failed, queued: 0, downloading: 0,
+      currentFile: null, failedFiles: [], done: true, cancelled: true,
+    });
+    return;
+  }
+
   log("Generating ZIP file...");
   updateDownloadPanel({
     total: files.length, completed, failed, queued: 0,
@@ -79,6 +90,16 @@ async function downloadAsZip(files, courseName, settings, log) {
   });
 
   const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 5 } });
+
+  if (downloadCancelled) {
+    log("Cancelled after ZIP was generated — not saving.");
+    updateDownloadPanel({
+      total: files.length, completed, failed, queued: 0, downloading: 0,
+      currentFile: null, failedFiles: [], done: true, cancelled: true,
+    });
+    return;
+  }
+
   const url = URL.createObjectURL(blob);
 
   const prefix = settings.folderPrefix ? `${sanitizeFilename(settings.folderPrefix)}/` : "";
@@ -510,6 +531,8 @@ async function downloadCurrentCourse() {
     showToast("Could not determine course ID. Navigate to a Canvas course page.", "error");
     return;
   }
+
+  downloadCancelled = false;
 
   const courseName = getCourseName();
   const domain = window.location.origin;

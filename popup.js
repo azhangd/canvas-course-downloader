@@ -57,6 +57,8 @@ document.addEventListener("DOMContentLoaded", () => {
     showQueueStatus(status);
   });
 
+  maybeShowFeedbackPrompt();
+
   chrome.tabs.query({ active: true, currentWindow: true }, ([tab]) => {
     chrome.tabs.sendMessage(tab.id, { action: "get_status" }, (response) => {
       if (chrome.runtime.lastError || !response) {
@@ -101,6 +103,37 @@ document.addEventListener("DOMContentLoaded", () => {
     });
   });
 });
+
+const FEEDBACK_THRESHOLD = 3;
+
+function maybeShowFeedbackPrompt() {
+  chrome.storage.local.get({ completedSessions: 0, feedbackState: "pending" }, (data) => {
+    if (data.feedbackState !== "pending" || data.completedSessions < FEEDBACK_THRESHOLD) return;
+
+    const card = document.getElementById("feedbackCard");
+    const ask = document.getElementById("feedbackAsk");
+    const positive = document.getElementById("feedbackPositive");
+    const negative = document.getElementById("feedbackNegative");
+    card.style.display = "block";
+
+    const markDone = (state) => chrome.storage.local.set({ feedbackState: state });
+
+    document.getElementById("feedbackYes").addEventListener("click", () => {
+      ask.style.display = "none";
+      positive.style.display = "block";
+      markDone("positive_clicked");
+    });
+    document.getElementById("feedbackNo").addEventListener("click", () => {
+      ask.style.display = "none";
+      negative.style.display = "block";
+      markDone("negative_clicked");
+    });
+    document.getElementById("feedbackDismiss").addEventListener("click", () => {
+      card.style.display = "none";
+      markDone("dismissed");
+    });
+  });
+}
 
 function showQueueStatus(status) {
   const section = document.getElementById("queueSection");

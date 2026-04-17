@@ -65,6 +65,12 @@ function showToast(message, type = "info") {
 
 let downloadPanel = null;
 
+// Content-script cancel flag. Set by the panel's Cancel button; read by the
+// ZIP fetch loop and the multi-course selector loop so they stop iterating
+// even though those loops run entirely in the content script (not in the
+// background queue).
+let downloadCancelled = false;
+
 function createDownloadPanel() {
   if (downloadPanel) return downloadPanel;
 
@@ -167,6 +173,7 @@ function createDownloadPanel() {
 
   // Cancel
   panel.querySelector("#cd-panel-cancel").addEventListener("click", () => {
+    downloadCancelled = true;
     chrome.runtime.sendMessage({ type: "CANCEL_DOWNLOADS" });
   });
 
@@ -847,8 +854,11 @@ async function openCourseSelector() {
 
     const domain = window.location.origin;
     let failedCount = 0;
+    downloadCancelled = false;
 
     for (let i = 0; i < selected.length; i++) {
+      if (downloadCancelled) break;
+
       const pct = Math.round((i / selected.length) * 100);
       bar.style.width = `${pct}%`;
       barBg.setAttribute("aria-valuenow", pct);
@@ -874,7 +884,11 @@ async function openCourseSelector() {
     const finishScreen = document.getElementById("cd-finish-screen");
     finishScreen.style.display = "block";
 
-    if (failedCount === 0) {
+    if (downloadCancelled) {
+      document.getElementById("cd-finish-icon").textContent = "\u26D4";
+      document.getElementById("cd-finish-title").textContent = "Cancelled";
+      document.getElementById("cd-finish-subtitle").textContent = "Download was cancelled. Remaining courses were skipped.";
+    } else if (failedCount === 0) {
       document.getElementById("cd-finish-icon").textContent = "\u2705";
       document.getElementById("cd-finish-title").textContent = "All downloads queued!";
       document.getElementById("cd-finish-subtitle").textContent = `${selected.length} course${selected.length !== 1 ? "s" : ""} successfully processed.`;
@@ -902,7 +916,7 @@ function injectButton() {
       <path d="M12 4v12"/><path d="M6 12l6 6 6-6"/><path d="M5 20h14"/>
     </svg>`;
 
-  const buildBtn = (id, label, marginBottom = "0") => {
+  const buildBtn = (id, label) => {
     const btn = document.createElement("button");
     btn.id = id;
     btn.innerHTML = `${downloadIcon}<span>${label}</span>`;
@@ -910,10 +924,11 @@ function injectButton() {
       display: inline-flex; align-items: center; gap: 7px;
       background: ${brand}; color: #fff; border: none; border-radius: 8px;
       padding: 7px 14px; font-size: 13.5px; font-weight: 600;
-      cursor: pointer; margin-left: 12px; margin-bottom: ${marginBottom};
+      cursor: pointer; margin-left: 12px;
       font-family: inherit; letter-spacing: -0.005em;
       box-shadow: 0 1px 2px rgba(0,0,0,0.06);
       transition: background 0.12s, transform 0.08s, box-shadow 0.12s;
+      align-self: center; vertical-align: middle; flex-shrink: 0;
     `;
     btn.addEventListener("mouseenter", () => {
       btn.style.background = brandHover;
@@ -931,19 +946,29 @@ function injectButton() {
   if (getCourseId()) {
     // Course page — single download button
     if (document.getElementById("canvas-downloader-btn")) return;
-    const anchor = findMountPoint(MOUNT_SELECTORS);
-    if (!anchor) return;
 
     const btn = buildBtn("canvas-downloader-btn", "Download course content");
     btn.addEventListener("click", downloadCurrentCourse);
-    anchor.appendChild(btn);
+
+    // Prefer slotting into the breadcrumb list itself so the button sits next
+    // to the course code instead of getting pushed to the far right of the
+    // header by Canvas's flex layout (and any sibling buttons like Immersive
+    // Reader). Falls back to broader header anchors if the list isn't found.
+    const crumbList = document.querySelector("#breadcrumbs ol, #breadcrumbs ul, .ic-app-crumbs");
+    if (crumbList) {
+      crumbList.appendChild(btn);
+    } else {
+      const anchor = findMountPoint(MOUNT_SELECTORS);
+      if (!anchor) return;
+      anchor.appendChild(btn);
+    }
   } else {
     // Dashboard — multi-course selector button
     if (document.getElementById("canvas-downloader-home-btn")) return;
     const anchor = findMountPoint(DASHBOARD_SELECTORS);
     if (!anchor) return;
 
-    const btn = buildBtn("canvas-downloader-home-btn", "Download courses", "10px");
+    const btn = buildBtn("canvas-downloader-home-btn", "Download courses");
     btn.addEventListener("click", openCourseSelector);
     anchor.appendChild(btn);
   }
