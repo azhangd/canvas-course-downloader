@@ -180,7 +180,7 @@ canvas-course-downloader/
 ├── canvas-api.js        # Canvas REST API: fetch with retry, pagination, timeouts
 ├── detector.js          # Canvas page and course detection
 ├── helpers.js           # Pure utilities: sanitization, parsing, color math
-├── jszip.min.js         # JSZip library
+├── client-zip.min.js    # client-zip library (streaming ZIP generator)
 ├── popup.html / js      # Extension popup
 ├── options.html / js    # Settings page
 ├── icons/               # Extension icons (SVG + PNG at 16, 48, 128)

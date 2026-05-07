@@ -36,72 +36,112 @@ function loadSettings() {
 // ZIP Download Helper
 // ---------------------------------------------------------------------------
 
+// Above this estimated total size we skip ZIP bundling and fall through to
+// per-file streaming downloads. ZIP output is buffered into a single Blob
+// before chrome.downloads ingests it; tab processes get unstable above ~2 GB,
+// so the threshold is conservative.
+const ZIP_MAX_TOTAL_BYTES = 1.5 * 1024 * 1024 * 1024;
+
 async function downloadAsZip(files, courseName, settings, log) {
-  const zip = new JSZip();
   const safeName = sanitizeFilename(courseName);
+  const totalFiles = files.length;
   let completed = 0;
   let failed = 0;
+  const failedFiles = [];
 
   createDownloadPanel();
 
-  for (const file of files) {
-    if (downloadCancelled) break;
+  // Bridge the existing cancel flag (set synchronously by the panel's Cancel
+  // button) to a standard AbortController, so in-flight fetches actually stop
+  // instead of running to completion and being discarded.
+  const abortController = new AbortController();
+  const cancelWatch = setInterval(() => {
+    if (downloadCancelled && !abortController.signal.aborted) abortController.abort();
+  }, 100);
 
-    const filePath = `${file.path}${file.filename}`;
+  // client-zip pulls from this generator lazily: each yield happens after the
+  // previous file's body has been fully streamed into the archive. We use the
+  // yield boundary to update the panel, so progress reflects real archive
+  // state, not just enqueue order.
+  async function* fileSource() {
+    const now = new Date();
+    for (const file of files) {
+      if (abortController.signal.aborted) return;
 
-    updateDownloadPanel({
-      total: files.length, completed, failed, queued: files.length - completed - failed,
-      downloading: 1, currentFile: file.filename, failedFiles: [], done: false, cancelled: false,
-    });
+      const fullPath = `${file.path}${file.filename}`;
+      updateDownloadPanel({
+        total: totalFiles, completed, failed, queued: totalFiles - completed - failed,
+        downloading: 1, currentFile: file.filename, failedFiles, done: false, cancelled: false,
+      });
 
-    try {
-      let content;
-      if (file.url.startsWith("data:")) {
-        // Decode data URI
-        const commaIdx = file.url.indexOf(",");
-        const encoded = file.url.substring(commaIdx + 1);
-        content = decodeURIComponent(encoded);
-      } else {
-        const res = await fetch(file.url);
-        if (!res.ok) throw new Error(`HTTP ${res.status}`);
-        content = await res.blob();
+      try {
+        let input;
+        if (file.url.startsWith("data:")) {
+          const res = await fetch(file.url);
+          input = new Uint8Array(await res.arrayBuffer());
+        } else {
+          const res = await fetch(file.url, { signal: abortController.signal });
+          if (!res.ok) throw new Error(`HTTP ${res.status}`);
+          input = res.body;
+        }
+        completed++;
+        yield {
+          name: fullPath,
+          input,
+          lastModified: now,
+          ...(file.size ? { size: file.size } : {}),
+        };
+      } catch (err) {
+        if (err && err.name === "AbortError") return;
+        console.warn(`[Canvas Downloader] ZIP: failed to fetch ${file.filename}:`, err);
+        failed++;
+        failedFiles.push(file.filename);
       }
-      zip.file(filePath, content);
-      completed++;
-    } catch (err) {
-      console.warn(`[Canvas Downloader] ZIP: failed to fetch ${file.filename}:`, err);
-      failed++;
     }
   }
 
-  if (downloadCancelled) {
-    log("Cancelled before ZIP was generated.");
+  log("Generating ZIP file (streaming)...");
+
+  let blob;
+  try {
+    // client-zip returns a Response whose body streams ZIP bytes as the
+    // generator is consumed. Calling .blob() lets the browser materialize the
+    // archive from the stream — peak memory is bounded by the network chunk
+    // size per file plus the final Blob, vs JSZip which buffered every input
+    // file plus the entire output before emitting.
+    const response = downloadZip(fileSource(), { buffersAreUTF8: true });
+    blob = await response.blob();
+  } catch (err) {
+    clearInterval(cancelWatch);
+    if (abortController.signal.aborted || downloadCancelled) {
+      log("Cancelled during ZIP generation.");
+      updateDownloadPanel({
+        total: totalFiles, completed, failed, queued: 0, downloading: 0,
+        currentFile: null, failedFiles, done: true, cancelled: true,
+      });
+      return;
+    }
+    console.error("[Canvas Downloader] ZIP generation failed:", err);
+    log(`ZIP generation failed: ${err && err.message ? err.message : err}.`);
     updateDownloadPanel({
-      total: files.length, completed, failed, queued: 0, downloading: 0,
-      currentFile: null, failedFiles: [], done: true, cancelled: true,
+      total: totalFiles, completed, failed, queued: 0, downloading: 0,
+      currentFile: "ZIP generation failed — see console", failedFiles, done: true, cancelled: false,
     });
-    return;
+    throw err;
   }
 
-  log("Generating ZIP file...");
-  updateDownloadPanel({
-    total: files.length, completed, failed, queued: 0,
-    downloading: 0, currentFile: "Generating ZIP...", failedFiles: [], done: false, cancelled: false,
-  });
-
-  const blob = await zip.generateAsync({ type: "blob", compression: "DEFLATE", compressionOptions: { level: 5 } });
+  clearInterval(cancelWatch);
 
   if (downloadCancelled) {
     log("Cancelled after ZIP was generated — not saving.");
     updateDownloadPanel({
-      total: files.length, completed, failed, queued: 0, downloading: 0,
-      currentFile: null, failedFiles: [], done: true, cancelled: true,
+      total: totalFiles, completed, failed, queued: 0, downloading: 0,
+      currentFile: null, failedFiles, done: true, cancelled: true,
     });
     return;
   }
 
   const url = URL.createObjectURL(blob);
-
   const prefix = settings.folderPrefix ? `${sanitizeFilename(settings.folderPrefix)}/` : "";
   const filename = `${prefix}${safeName}.zip`;
 
@@ -115,12 +155,11 @@ async function downloadAsZip(files, courseName, settings, log) {
     );
   });
 
-  // Clean up blob URL after a delay
   setTimeout(() => URL.revokeObjectURL(url), 60000);
 
   updateDownloadPanel({
-    total: files.length, completed, failed, queued: 0, downloading: 0,
-    currentFile: null, failedFiles: [], done: true, cancelled: false,
+    total: totalFiles, completed, failed, queued: 0, downloading: 0,
+    currentFile: null, failedFiles, done: true, cancelled: false,
   });
 
   log(`ZIP created: ${safeName}.zip (${completed} files, ${failed} failed)`);
@@ -494,8 +533,15 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // --- ZIP mode or individual download handoff --------------------------------
   log(`${filesToDownload.length} files ready.`);
 
-  if (settings.zipMode && typeof JSZip !== "undefined") {
-    return await downloadAsZip(filesToDownload, courseName, settings, log);
+  if (settings.zipMode && typeof downloadZip !== "undefined") {
+    const estimatedBytes = filesToDownload.reduce((sum, f) => sum + (f.size || 0), 0);
+    if (estimatedBytes > ZIP_MAX_TOTAL_BYTES) {
+      const gb = (estimatedBytes / (1024 * 1024 * 1024)).toFixed(1);
+      log(`Estimated archive size ~${gb} GB exceeds the bundling ceiling — falling back to individual file downloads.`);
+      showToast(`Course is too large for ZIP bundling (~${gb} GB). Files will download individually.`, "info");
+    } else {
+      return await downloadAsZip(filesToDownload, courseName, settings, log);
+    }
   }
 
   return new Promise((resolve, reject) => {
