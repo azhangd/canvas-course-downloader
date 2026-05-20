@@ -72,6 +72,49 @@
     assert("toHtmlDataUri: returns data URI", toHtmlDataUri("Test", "<p>Body</p>").startsWith("data:text/html;charset=utf-8,"));
     assert("toHtmlDataUri: contains title", decodeURIComponent(toHtmlDataUri("My Title", "")).includes("<title>My Title</title>"));
     assert("toHtmlDataUri: strips scripts from body", !decodeURIComponent(toHtmlDataUri("X", '<script>alert(1)</script>')).includes("<script>"));
+    assert("toHtmlDataUri: root file links to styles.css", decodeURIComponent(toHtmlDataUri("X", "", "")).includes('href="./styles.css"'));
+    assert("toHtmlDataUri: subfolder file links up to styles.css", decodeURIComponent(toHtmlDataUri("X", "", "Pages/")).includes('href="../styles.css"'));
+
+    // --- relativePathToCourseRoot ---
+    assertEqual("relativePathToCourseRoot: root", relativePathToCourseRoot(""), ".");
+    assertEqual("relativePathToCourseRoot: one level", relativePathToCourseRoot("Pages/"), "..");
+    assertEqual("relativePathToCourseRoot: two levels", relativePathToCourseRoot("Modules/Week 1/"), "../..");
+
+    // --- cleanCanvasHtml ---
+    assertEqual("cleanCanvasHtml: removes empty p with nbsp", cleanCanvasHtml("<p>&nbsp;</p>"), "");
+    assertEqual("cleanCanvasHtml: removes empty span with nbsp", cleanCanvasHtml("<span>&nbsp;</span>"), "");
+    assertEqual("cleanCanvasHtml: leaves p with real content alone", cleanCanvasHtml("<p>real text</p>"), "<p>real text</p>");
+    assertEqual("cleanCanvasHtml: leaves span with real content alone", cleanCanvasHtml('<span style="color:red">x</span>'), '<span style="color:red">x</span>');
+    assertEqual("cleanCanvasHtml: empty input returns empty string", cleanCanvasHtml(""), "");
+
+    // --- formatDate ---
+    assert("formatDate: handles ISO string", /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(formatDate("2026-05-27T23:59:59Z")));
+    assertEqual("formatDate: empty input returns empty string", formatDate(""), "");
+    assertEqual("formatDate: invalid input returns empty string", formatDate("not a date"), "");
+
+    // --- relativeUrlFromTo ---
+    assertEqual("relativeUrlFromTo: from root", relativeUrlFromTo("", "Pages/foo.html"), "Pages/foo.html");
+    assertEqual("relativeUrlFromTo: from one level", relativeUrlFromTo("Pages/", "Assignments/bar.html"), "../Assignments/bar.html");
+    assertEqual("relativeUrlFromTo: same folder", relativeUrlFromTo("Pages/", "Pages/sibling.html"), "../Pages/sibling.html");
+    assertEqual("relativeUrlFromTo: from deep", relativeUrlFromTo("Modules/Week 1/", "Files/lecture.pdf"), "../../Files/lecture.pdf");
+
+    // --- rewriteCanvasLinks ---
+    const urlMap = new Map([
+      ["https://canvas.example.com/courses/1/pages/foo", "Pages/foo.html"],
+      ["https://canvas.example.com/courses/1/assignments/42", "Assignments/Lab 1.html"],
+    ]);
+    assertEqual("rewriteCanvasLinks: known href rewritten",
+      rewriteCanvasLinks('<a href="https://canvas.example.com/courses/1/pages/foo">x</a>', urlMap, "Assignments/"),
+      '<a href="../Pages/foo.html">x</a>');
+    assertEqual("rewriteCanvasLinks: unknown href untouched",
+      rewriteCanvasLinks('<a href="https://example.com/other">x</a>', urlMap, "Pages/"),
+      '<a href="https://example.com/other">x</a>');
+    assertEqual("rewriteCanvasLinks: href with query string still matches",
+      rewriteCanvasLinks('<a href="https://canvas.example.com/courses/1/pages/foo?wrap=true">x</a>', urlMap, ""),
+      '<a href="Pages/foo.html">x</a>');
+    assertEqual("rewriteCanvasLinks: empty urlMap returns input unchanged",
+      rewriteCanvasLinks('<a href="https://canvas.example.com/courses/1/pages/foo">x</a>', new Map(), ""),
+      '<a href="https://canvas.example.com/courses/1/pages/foo">x</a>');
 
     // --- parsePaginationLink ---
     assertEqual("parsePaginationLink: null input", parsePaginationLink(null), null);

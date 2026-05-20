@@ -27,6 +27,9 @@ Having a local copy of your course materials also means you can feed them into A
 - Bundle each course into a single `.zip` file instead of loose folders
 - Incremental mode skips files you've already downloaded on previous runs
 - Export your grades (and class averages!) as a CSV with assignment names, due dates, points, scores, and letter grades
+- Export pages, assignments, announcements, and discussions as either HTML or Markdown
+- Cross-reference rewriting: links between exported pages, assignments, and files become relative paths so you can browse the course offline without dead Canvas links
+- Pulls in pages that only appear inside Modules, plus their embedded slides / PDFs
 - Finds files embedded in assignments, pages, announcements, and discussions that don't appear in the file browser
 - Saves into organized subfolders per course with your original Canvas folder structure preserved
 - Four built-in presets (Full Archive, Files Only, Text Only, Linked Only) plus custom configuration
@@ -112,6 +115,7 @@ Open settings from the extension popup or your browser's extension options page.
 | Folder prefix | Custom string prepended to all download paths |
 | ZIP bundling | Bundle each course into a single `.zip` file |
 | Incremental mode | Track what's been downloaded per course and skip those files next time |
+| Export format | HTML (default) or Markdown — Markdown is best for Obsidian, Notion, or LLM ingestion |
 
 ## Supported content
 
@@ -157,10 +161,11 @@ Course Name/
 ├── Modules.html
 ├── Syllabus.html
 ├── Grades.csv
+├── styles.css        # Built-in stylesheet linked from every exported HTML
 └── manifest.json
 ```
 
-In ZIP mode, the same structure is bundled into a single `Course Name.zip`.
+In ZIP mode, the same structure is bundled into a single `Course Name.zip`. In Markdown export mode, all generated documents end in `.md` instead of `.html` and the `styles.css` file is omitted.
 
 ## How it works
 
@@ -181,6 +186,8 @@ canvas-course-downloader/
 ├── detector.js          # Canvas page and course detection
 ├── helpers.js           # Pure utilities: sanitization, parsing, color math
 ├── client-zip.min.js    # client-zip library (streaming ZIP generator)
+├── turndown.min.js      # turndown (HTML → Markdown) for the Markdown export mode
+├── turndown-plugin-gfm.min.js  # GFM tables / strikethrough plugin for turndown
 ├── popup.html / js      # Extension popup
 ├── options.html / js    # Settings page
 ├── icons/               # Extension icons (SVG + PNG at 16, 48, 128)

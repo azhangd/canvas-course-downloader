@@ -24,6 +24,7 @@ const DEFAULTS = {
   excludeVideos: false,
   maxFileSizeMB: 0,
   preset: "full-archive",
+  exportFormat: "html",
 };
 
 const PRESETS = {
@@ -94,6 +95,7 @@ function loadSettings() {
     document.getElementById("incremental-mode").checked = settings.incrementalMode;
     document.getElementById("exclude-videos").checked = settings.excludeVideos;
     document.getElementById("max-file-size").value = settings.maxFileSizeMB || "";
+    document.getElementById("export-format").value = settings.exportFormat || "html";
 
     // Preset highlight
     const preset = detectPreset();
@@ -115,6 +117,7 @@ function saveSettings() {
     excludeVideos: document.getElementById("exclude-videos").checked,
     maxFileSizeMB: parseInt(document.getElementById("max-file-size").value, 10) || 0,
     preset: detectPreset(),
+    exportFormat: document.getElementById("export-format").value,
   };
 
   chrome.storage.sync.set(settings, () => {

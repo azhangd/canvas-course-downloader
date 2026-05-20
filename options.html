@@ -317,6 +317,18 @@
   </div>
 
   <div class="card">
+    <h2>Export Format</h2>
+    <div class="field">
+      <label for="export-format">Format for pages, assignments, announcements, discussions, etc.</label>
+      <select id="export-format">
+        <option value="html">HTML (default)</option>
+        <option value="markdown">Markdown (.md)</option>
+      </select>
+      <div class="hint">Markdown exports skip <code>styles.css</code> and produce <code>.md</code> files instead of HTML. Best for Obsidian, Notion, or feeding into an LLM. Canvas files (PDFs, etc.) are unaffected.</div>
+    </div>
+  </div>
+
+  <div class="card">
     <h2>File Filters</h2>
     <div class="toggle-row">
       <label><input type="checkbox" id="exclude-videos" class="custom-checkbox"> Exclude video files</label>

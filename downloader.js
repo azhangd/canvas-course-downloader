@@ -23,6 +23,7 @@ const SETTING_DEFAULTS = {
   excludeVideos: false,
   maxFileSizeMB: 0,
   preset: "full-archive",
+  exportFormat: "html",
 };
 
 /** Loads user settings from chrome.storage.sync, falling back to defaults. */
@@ -180,6 +181,8 @@ async function downloadAsZip(files, courseName, settings, log) {
 async function downloadCourse(courseId, courseName, domain, onProgress) {
   const settings = await loadSettings();
   const types = settings.contentTypes;
+  const isMarkdown = settings.exportFormat === "markdown";
+  const docExt = isMarkdown ? "md" : "html";
   const log = (msg) => {
     console.log(`[Canvas Downloader] [${courseName}] ${msg}`);
     if (onProgress) onProgress(msg);
@@ -188,6 +191,36 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   const api = (path) => `${domain}/api/v1/courses/${courseId}/${path}`;
   const filesToDownload = [];
   const seenFileIds = new Set();
+  // Maps Canvas module-item ids to the underlying { type, key } so cross-reference
+  // rewriting can dereference /modules/items/<id> URLs to the actual resource.
+  const moduleItemIdToResource = new Map();
+
+  /**
+   * Builds a *raw* document entry (no data-URI encoding yet). Bodies stay as
+   * HTML strings on the entry so the cross-reference rewrite pass can mutate
+   * hrefs before final encoding. `resourceType` + `resourceId` let the URL
+   * map identify this entry as the target of Canvas links pointing at it.
+   */
+  const buildDocEntry = (title, htmlBody, filenameStem, path, resourceType, resourceId = null) => ({
+    rawBody: htmlBody,
+    title,
+    resourceType,
+    resourceId,
+    filename: `${filenameStem}.${docExt}`,
+    path,
+  });
+
+  /** True if this entry is a generated document (raw body) OR a synthesized data-URI (CSV, manifest). */
+  const isSynthetic = (f) => f.rawBody !== undefined || (f.url && f.url.startsWith("data:"));
+
+  // --- Stylesheet for exported HTML ----------------------------------------
+  if (!isMarkdown) {
+    filesToDownload.push({
+      url: `data:text/css;charset=utf-8,${encodeURIComponent(FALLBACK_EXPORT_CSS)}`,
+      filename: "styles.css",
+      path: "",
+    });
+  }
 
   // --- Files & Folders -------------------------------------------------------
   let files = [];
@@ -206,7 +239,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       if (folder.startsWith("/")) folder = folder.slice(1);
 
       seenFileIds.add(String(file.id));
-      filesToDownload.push({ url: file.url, filename: file.display_name, path: `Files/${folder}`, size: file.size || 0, contentType: file["content-type"] || "" });
+      filesToDownload.push({ url: file.url, filename: file.display_name, path: `Files/${folder}`, size: file.size || 0, contentType: file["content-type"] || "", canvasId: String(file.id) });
     });
   }
 
@@ -233,6 +266,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
             path: "Extracted_Files/",
             size: data.size || 0,
             contentType: data["content-type"] || "",
+            canvasId: fileId,
           });
         }
       } catch (err) {
@@ -241,28 +275,17 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
   }
 
-  // --- Pages -----------------------------------------------------------------
+  // --- Pages: collect slugs from the Pages API list -------------------------
+  // Bodies are fetched later, AFTER Modules, so we can also pull in pages that
+  // only appear as module items (Canvas's Pages list omits those for students
+  // when the page isn't in the main pages navigation).
   let pages = [];
+  const pageSlugsToFetch = new Set();
   if (types.pages) {
-    log("Fetching pages...");
+    log("Fetching pages list...");
     pages = await fetchAllPages(api("pages?per_page=100"));
-
-    for (const meta of pages) {
-      try {
-        const res = await fetchWithRetry(`${domain}/api/v1/courses/${courseId}/pages/${meta.url}`);
-        if (!res.ok) continue;
-        const page = await res.json();
-
-        filesToDownload.push({
-          url: toHtmlDataUri(page.title, page.body || ""),
-          filename: `${sanitizeFilename(page.url).substring(0, 100)}.html`,
-          path: "Pages/",
-        });
-
-        if (types.linkedFiles && page.body) await extractLinkedFiles(page.body, `Page: ${page.title}`);
-      } catch (err) {
-        console.warn(`[Canvas Downloader] Could not fetch page ${meta.url}:`, err);
-      }
+    for (const p of pages) {
+      if (p.url) pageSlugsToFetch.add(p.url);
     }
   }
 
@@ -273,18 +296,14 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     assignments = await fetchAllPages(api("assignments?per_page=100"));
 
     for (const a of assignments) {
-      let body = `<h2><a href="${a.html_url}">${a.name}</a></h2>`;
-      if (a.due_at) body += `<p><strong>Due:</strong> ${new Date(a.due_at).toLocaleString()}</p>`;
+      let body = "";
+      if (a.due_at) body += `<p><strong>Due:</strong> ${formatDate(a.due_at)}</p>`;
       if (a.description) {
-        body += `<div>${a.description}</div>`;
+        body += `<div>${cleanCanvasHtml(a.description)}</div>`;
         if (types.linkedFiles) await extractLinkedFiles(a.description, `Assignment: ${a.name}`);
       }
       const safeName = sanitizeFilename(a.name).substring(0, 100);
-      filesToDownload.push({
-        url: toHtmlDataUri(a.name, body),
-        filename: `${safeName}.html`,
-        path: "Assignments/",
-      });
+      filesToDownload.push(buildDocEntry(a.name, body, safeName, "Assignments/", "assignment", String(a.id)));
     }
   }
 
@@ -295,18 +314,14 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     announcements = await fetchAllPages(api("discussion_topics?only_announcements=true&per_page=100"));
 
     for (const a of announcements) {
-      let body = `<h2><a href="${a.html_url}">${a.title}</a></h2>`;
-      if (a.posted_at) body += `<p><strong>Posted:</strong> ${new Date(a.posted_at).toLocaleString()}</p>`;
+      let body = "";
+      if (a.posted_at) body += `<p><strong>Posted:</strong> ${formatDate(a.posted_at)}</p>`;
       if (a.message) {
-        body += `<div>${a.message}</div>`;
+        body += `<div>${cleanCanvasHtml(a.message)}</div>`;
         if (types.linkedFiles) await extractLinkedFiles(a.message, `Announcement: ${a.title}`);
       }
       const safeName = sanitizeFilename(a.title).substring(0, 100);
-      filesToDownload.push({
-        url: toHtmlDataUri(a.title, body),
-        filename: `${safeName}.html`,
-        path: "Announcements/",
-      });
+      filesToDownload.push(buildDocEntry(a.title, body, safeName, "Announcements/", "announcement", String(a.id)));
     }
   }
 
@@ -318,19 +333,15 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     discussions = allTopics.filter((d) => !d.is_announcement);
 
     for (const d of discussions) {
-      let body = `<h2><a href="${d.html_url}">${d.title}</a></h2>`;
+      let body = "";
       if (d.user_name) body += `<p><strong>Author:</strong> ${d.user_name}</p>`;
-      if (d.posted_at) body += `<p><strong>Posted:</strong> ${new Date(d.posted_at).toLocaleString()}</p>`;
+      if (d.posted_at) body += `<p><strong>Posted:</strong> ${formatDate(d.posted_at)}</p>`;
       if (d.message) {
-        body += `<div>${d.message}</div>`;
+        body += `<div>${cleanCanvasHtml(d.message)}</div>`;
         if (types.linkedFiles) await extractLinkedFiles(d.message, `Discussion: ${d.title}`);
       }
       const safeName = sanitizeFilename(d.title).substring(0, 100);
-      filesToDownload.push({
-        url: toHtmlDataUri(d.title, body),
-        filename: `${safeName}.html`,
-        path: "Discussions/",
-      });
+      filesToDownload.push(buildDocEntry(d.title, body, safeName, "Discussions/", "discussion", String(d.id)));
     }
   }
 
@@ -349,6 +360,35 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         const label = item.html_url ? `<a href="${item.html_url}">${item.title}</a>` : item.title;
         modulesBody += `<li>${label} (${item.type})</li>`;
 
+        // Track module-item → underlying-resource linkage for cross-ref rewriting.
+        if (item.id) {
+          if (item.type === "Page" && item.page_url) {
+            moduleItemIdToResource.set(String(item.id), { type: "page", key: item.page_url });
+          } else if (item.content_id) {
+            const typeKey = { Assignment: "assignment", Discussion: "discussion", File: "file" }[item.type];
+            if (typeKey) moduleItemIdToResource.set(String(item.id), { type: typeKey, key: String(item.content_id) });
+          }
+        }
+
+        // Surface module-only Pages so their bodies (and embedded files) get
+        // exported. We don't gate on `types.pages` because the embedded files
+        // (PDF slides etc.) are what makes the export usable — the page HTML
+        // itself is only pushed downstream when `types.pages` is on.
+        if (item.type === "Page") {
+          let slug = item.page_url;
+          // Some Canvas instances don't return `page_url` on module items; fall
+          // back to parsing the slug out of the per-item API URL or html URL.
+          if (!slug && item.url) {
+            const m = item.url.match(/\/pages\/([^/?#]+)/);
+            if (m) slug = decodeURIComponent(m[1]);
+          }
+          if (!slug && item.html_url) {
+            const m = item.html_url.match(/\/pages\/([^/?#]+)/);
+            if (m) slug = decodeURIComponent(m[1]);
+          }
+          if (slug) pageSlugsToFetch.add(slug);
+        }
+
         if (item.type === "File" && item.url) {
           try {
             const res = await fetchWithRetry(item.url);
@@ -365,6 +405,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
                 path: `Modules/${safeModName}/`,
                 size: data.size || 0,
                 contentType: data["content-type"] || "",
+                canvasId: fileId,
               });
             }
           } catch (err) {
@@ -375,11 +416,48 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       modulesBody += "</ul>";
     }
 
-    filesToDownload.push({
-      url: toHtmlDataUri("Modules", modulesBody),
-      filename: "Modules.html",
-      path: "",
-    });
+    filesToDownload.push(buildDocEntry("Modules", modulesBody, "Modules", "", "module-index"));
+  }
+
+  // --- Pages: fetch bodies for every slug (from Pages list + Modules) -------
+  // We deduplicate via the Set, so a page appearing both in the Pages list
+  // and as a module item is exported once. The fetch runs whenever we have
+  // any slugs at all — even if the user unchecked Pages — so that embedded
+  // files (PDF slides etc.) inside module-only pages still get extracted.
+  let exportedPagesCount = 0;
+  if (pageSlugsToFetch.size > 0) {
+    log(`Fetching ${pageSlugsToFetch.size} page${pageSlugsToFetch.size === 1 ? "" : "s"}...`);
+    console.log("[Canvas Downloader] Page slugs to fetch:", [...pageSlugsToFetch]);
+    for (const slug of pageSlugsToFetch) {
+      try {
+        const res = await fetchWithRetry(`${domain}/api/v1/courses/${courseId}/pages/${slug}`);
+        if (!res.ok) {
+          console.warn(`[Canvas Downloader] Page fetch failed for "${slug}" — HTTP ${res.status}`);
+          continue;
+        }
+        const page = await res.json();
+
+        if (types.pages) {
+          filesToDownload.push(
+            buildDocEntry(
+              page.title,
+              cleanCanvasHtml(page.body || ""),
+              sanitizeFilename(page.url).substring(0, 100),
+              "Pages/",
+              "page",
+              page.url
+            )
+          );
+          exportedPagesCount++;
+        }
+
+        if (types.linkedFiles && page.body) await extractLinkedFiles(page.body, `Page: ${page.title}`);
+      } catch (err) {
+        console.warn(`[Canvas Downloader] Could not fetch page ${slug}:`, err);
+      }
+    }
+  } else if (types.pages) {
+    console.log("[Canvas Downloader] No pages found via Pages API list or Modules — nothing to fetch.");
   }
 
   // --- Syllabus --------------------------------------------------------------
@@ -391,11 +469,15 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         const data = await res.json();
         if (data.syllabus_body) {
           if (types.linkedFiles) await extractLinkedFiles(data.syllabus_body, "Syllabus");
-          filesToDownload.push({
-            url: toHtmlDataUri(`Syllabus — ${courseName}`, data.syllabus_body),
-            filename: "Syllabus.html",
-            path: "",
-          });
+          filesToDownload.push(
+            buildDocEntry(
+              `Syllabus — ${courseName}`,
+              cleanCanvasHtml(data.syllabus_body),
+              "Syllabus",
+              "",
+              "syllabus"
+            )
+          );
         }
       }
     } catch (err) {
@@ -416,7 +498,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         ];
         for (const a of gradeAssignments) {
           const name = (a.name || "").replace(/"/g, '""');
-          const due = a.due_at ? new Date(a.due_at).toLocaleDateString() : "";
+          const due = formatDate(a.due_at).slice(0, 10);
           const possible = a.points_possible ?? "";
           const score = a.submission?.score ?? "";
           const grade = a.submission?.grade ?? "";
@@ -450,7 +532,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
 
     const filtered = [];
     for (const file of filesToDownload) {
-      if (!file.url.startsWith("data:")) {
+      if (!isSynthetic(file)) {
         const fileKey = file.path + file.filename;
         if (stored[fileKey]) {
           skippedCount++;
@@ -462,7 +544,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
 
     const newRecord = {};
     for (const file of filesToDownload) {
-      if (!file.url.startsWith("data:")) {
+      if (!isSynthetic(file)) {
         newRecord[file.path + file.filename] = Date.now();
       }
     }
@@ -485,8 +567,8 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
 
     const kept = [];
     for (const file of filesToDownload) {
-      // Skip data URIs (generated HTML/CSV/JSON) — always keep those
-      if (file.url.startsWith("data:")) { kept.push(file); continue; }
+      // Always keep generated docs / synthesized data URIs (CSV, manifest, styles).
+      if (isSynthetic(file)) { kept.push(file); continue; }
 
       if (settings.excludeVideos) {
         if (VIDEO_EXTENSIONS.test(file.filename) || (file.contentType && file.contentType.startsWith("video/"))) {
@@ -517,7 +599,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     extensionVersion: chrome.runtime.getManifest().version,
     counts: {
       files: files.length,
-      pages: pages.length,
+      pages: exportedPagesCount,
       assignments: assignments.length,
       announcements: announcements.length,
       discussions: discussions.length,
@@ -539,6 +621,51 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   const safeCourse = sanitizeFilename(courseName);
   for (const file of filesToDownload) {
     file.filename = truncateFilename(file.filename, safeCourse, file.path);
+  }
+
+  // --- Cross-reference URL map -------------------------------------------
+  // Walk filesToDownload (after truncation, so paths are final) and map every
+  // exported resource's Canvas URL to its local "<path><filename>" target.
+  const urlMap = new Map();
+  for (const f of filesToDownload) {
+    const target = `${f.path}${f.filename}`;
+    if (f.resourceType === "page" && f.resourceId) {
+      urlMap.set(`${domain}/courses/${courseId}/pages/${f.resourceId}`, target);
+    } else if (f.resourceType === "assignment" && f.resourceId) {
+      urlMap.set(`${domain}/courses/${courseId}/assignments/${f.resourceId}`, target);
+    } else if (f.resourceType === "announcement" && f.resourceId) {
+      urlMap.set(`${domain}/courses/${courseId}/discussion_topics/${f.resourceId}`, target);
+      urlMap.set(`${domain}/courses/${courseId}/announcements/${f.resourceId}`, target);
+    } else if (f.resourceType === "discussion" && f.resourceId) {
+      urlMap.set(`${domain}/courses/${courseId}/discussion_topics/${f.resourceId}`, target);
+      urlMap.set(`${domain}/courses/${courseId}/discussions/${f.resourceId}`, target);
+    } else if (f.canvasId) {
+      urlMap.set(`${domain}/courses/${courseId}/files/${f.canvasId}`, target);
+      urlMap.set(`${domain}/files/${f.canvasId}`, target);
+    }
+  }
+  // Dereference /modules/items/<id> URLs through the items→resource map.
+  for (const [itemId, info] of moduleItemIdToResource) {
+    let sourceUrl;
+    if (info.type === "page") sourceUrl = `${domain}/courses/${courseId}/pages/${info.key}`;
+    else if (info.type === "assignment") sourceUrl = `${domain}/courses/${courseId}/assignments/${info.key}`;
+    else if (info.type === "discussion") sourceUrl = `${domain}/courses/${courseId}/discussion_topics/${info.key}`;
+    else if (info.type === "file") sourceUrl = `${domain}/courses/${courseId}/files/${info.key}`;
+    const resolved = sourceUrl && urlMap.get(sourceUrl);
+    if (resolved) urlMap.set(`${domain}/courses/${courseId}/modules/items/${itemId}`, resolved);
+  }
+
+  // --- Rewrite + encode pass on generated docs ---------------------------
+  for (const f of filesToDownload) {
+    if (f.rawBody === undefined) continue;
+    const rewritten = rewriteCanvasLinks(f.rawBody, urlMap, f.path);
+    f.url = isMarkdown
+      ? toMarkdownDataUri(f.title, htmlToMarkdown(rewritten))
+      : toHtmlDataUri(f.title, rewritten, f.path);
+    delete f.rawBody;
+    delete f.title;
+    delete f.resourceType;
+    delete f.resourceId;
   }
 
   // --- ZIP mode or individual download handoff --------------------------------
