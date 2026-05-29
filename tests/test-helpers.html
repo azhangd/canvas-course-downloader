@@ -92,6 +92,14 @@
     assertEqual("cleanCanvasHtml: leaves p with real content alone", cleanCanvasHtml("<p>real text</p>"), "<p>real text</p>");
     assertEqual("cleanCanvasHtml: leaves span with real content alone", cleanCanvasHtml('<span style="color:red">x</span>'), '<span style="color:red">x</span>');
     assertEqual("cleanCanvasHtml: empty input returns empty string", cleanCanvasHtml(""), "");
+    assert("cleanCanvasHtml: replaces YouTube iframe with thumbnail link",
+      (() => { const o = cleanCanvasHtml('<iframe src="https://www.youtube.com/embed/dQw4w9WgXcQ?rel=0"></iframe>');
+               return o.includes('img.youtube.com/vi/dQw4w9WgXcQ') && o.includes('watch?v=dQw4w9WgXcQ') && !o.includes("<iframe"); })());
+    assert("cleanCanvasHtml: neutralizes Canvas placeholder anchor",
+      (() => { const o = cleanCanvasHtml('<a href="$CANVAS_OBJECT_REFERENCE$/x">link</a>');
+               return o.includes("canvas-archive-broken") && o.includes("link") && !o.includes("href="); })());
+    assertEqual("cleanCanvasHtml: leaves normal links alone",
+      cleanCanvasHtml('<a href="https://example.com">ok</a>'), '<a href="https://example.com">ok</a>');
 
     // --- formatDate ---
     assert("formatDate: handles ISO string", /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}$/.test(formatDate("2026-05-27T23:59:59Z")));

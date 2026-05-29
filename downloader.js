@@ -13,7 +13,7 @@ const SETTING_DEFAULTS = {
   contentTypes: {
     files: true, pages: true, assignments: true, discussions: true,
     announcements: true, modules: true, syllabus: true, grades: true,
-    linkedFiles: true,
+    quizzes: true, linkedFiles: true,
   },
   conflictAction: "uniquify",
   throttleMs: 250,
@@ -31,6 +31,111 @@ function loadSettings() {
   return new Promise((resolve) => {
     chrome.storage.sync.get(SETTING_DEFAULTS, (s) => resolve(s));
   });
+}
+
+// ---------------------------------------------------------------------------
+// Rubric + quiz rendering helpers
+//
+// These capture course elements modeled on dlxmax's canvas-teacher-export
+// (MIT-licensed, github.com/dlxmax/canvas-teacher-export), ported from its
+// Python/regex rendering to the extension's DOM/JS style.
+// ---------------------------------------------------------------------------
+
+/** Escapes text for safe interpolation into exported HTML. */
+function escapeHtml(s) {
+  return String(s ?? "").replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+
+/** Renders a points value, dropping a redundant ".0" on whole numbers. */
+function fmtPoints(v) {
+  if (v == null || v === "") return "";
+  const n = Number(v);
+  return Number.isNaN(n) ? String(v) : String(n);
+}
+
+/**
+ * Renders a rubric *definition* (criteria + rating tiers). Part of the
+ * assignment/quiz itself, so it's shown to students and teachers alike.
+ */
+function renderRubricDefinition(rubric) {
+  if (!Array.isArray(rubric) || rubric.length === 0) return "";
+  let html = "<h3>Rubric</h3><table><thead><tr><th>Criterion</th><th>Points</th><th>Rating tiers</th></tr></thead><tbody>";
+  for (const crit of rubric) {
+    const tiers = (crit.ratings || [])
+      .map((r) => `<div><strong>${fmtPoints(r.points)}</strong>: ${escapeHtml(r.description || "")}${r.long_description ? ` — ${escapeHtml(r.long_description)}` : ""}</div>`)
+      .join("");
+    html += `<tr><td><strong>${escapeHtml(crit.description || "")}</strong>${crit.long_description ? `<div>${escapeHtml(crit.long_description)}</div>` : ""}</td><td>${fmtPoints(crit.points)}</td><td>${tiers}</td></tr>`;
+  }
+  return html + "</tbody></table>";
+}
+
+/**
+ * Renders a per-student rubric *assessment* — the points and comments a grader
+ * recorded against each criterion. Teacher-only (it lives on others'
+ * submissions). `assessment` is the submission's rubric_assessment map keyed
+ * by criterion id.
+ */
+function renderRubricAssessment(rubric, assessment) {
+  if (!assessment || !Array.isArray(rubric) || rubric.length === 0) return "";
+  let html = "<h3>Rubric assessment</h3><table><thead><tr><th>Criterion</th><th>Points</th><th>Comments</th></tr></thead><tbody>";
+  for (const crit of rubric) {
+    const a = assessment[crit.id] || {};
+    const pts = a.points != null ? `${fmtPoints(a.points)} / ${fmtPoints(crit.points)}` : "—";
+    html += `<tr><td>${escapeHtml(crit.description || "")}</td><td>${pts}</td><td>${escapeHtml(a.comments || "")}</td></tr>`;
+  }
+  return html + "</tbody></table>";
+}
+
+/**
+ * Renders a quiz question bank, marking correct answers (answer weight > 0).
+ * Teacher-only: Canvas refuses /quizzes/{id}/questions for students unless
+ * they're actively taking the quiz.
+ */
+function renderQuizQuestions(questions) {
+  if (!Array.isArray(questions) || questions.length === 0) return "";
+  let html = "<h3>Questions &amp; answer key</h3>";
+  questions.forEach((q, i) => {
+    html += `<div class="quiz-question"><p><strong>Q${i + 1}.</strong> (${fmtPoints(q.points_possible)} pts) ${cleanCanvasHtml(q.question_text || "")}</p>`;
+    const answers = q.answers || [];
+    if (answers.length) {
+      html += "<ul>";
+      for (const ans of answers) {
+        const correct = Number(ans.weight) > 0;
+        const text = ans.html ? cleanCanvasHtml(ans.html) : escapeHtml(ans.text || "");
+        html += `<li>${correct ? "<strong>✓ </strong>" : ""}${text}${correct ? " <em>(correct)</em>" : ""}</li>`;
+      }
+      html += "</ul>";
+    }
+    html += "</div>";
+  });
+  return html;
+}
+
+/**
+ * Renders the student's own answered quiz questions (best effort). Canvas
+ * returns these via /quiz_submissions/{id}/questions only when the instructor
+ * left "let students see their responses" on; otherwise the caller falls back
+ * to a score-only page.
+ */
+function renderOwnQuizAnswers(questions) {
+  if (!Array.isArray(questions) || questions.length === 0) return "";
+  let html = "<h3>Your answers</h3>";
+  questions.forEach((q, i) => {
+    html += `<div class="quiz-question"><p><strong>Q${i + 1}.</strong> ${cleanCanvasHtml(q.question_text || "")}</p>`;
+    const answers = (q.answers || []).filter((a) => a.id != null);
+    if (answers.length) {
+      html += "<ul>";
+      for (const ans of answers) {
+        const text = ans.html ? cleanCanvasHtml(ans.html) : escapeHtml(ans.text || "");
+        // `correct` is only present when the instructor exposes correctness.
+        const mark = ans.correct === true ? " <em>(correct)</em>" : ans.correct === false ? " <em>(incorrect)</em>" : "";
+        html += `<li>${text}${mark}</li>`;
+      }
+      html += "</ul>";
+    }
+    html += "</div>";
+  });
+  return html;
 }
 
 // ---------------------------------------------------------------------------
@@ -206,6 +311,28 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   let discussionReplyCount = 0;
   let studentSubmissionCount = 0;
   let gradebookStudentCount = 0;
+  let quizCount = 0;
+
+  // --- Shared teacher roster + section map -----------------------------------
+  // Fetched once and reused by the gradebook (section column + Students.csv),
+  // the per-student submission pages, and quiz score tables. Only a teacher can
+  // list the roster, so this stays empty for students.
+  let students = [];
+  const userIdToName = new Map();
+  const userIdToSection = new Map();
+  if (isTeacher && (types.grades || types.quizzes)) {
+    log("Fetching roster...");
+    students = await fetchAllPages(api("users?enrollment_type[]=student&per_page=100"));
+    for (const s of students) userIdToName.set(String(s.id), s.sortable_name || s.name || `user_${s.id}`);
+    try {
+      const sections = await fetchAllPages(api("sections?include[]=students&per_page=100"));
+      for (const sec of sections) {
+        for (const stu of sec.students || []) userIdToSection.set(String(stu.id), sec.name || "");
+      }
+    } catch (err) {
+      console.warn("[Canvas Downloader] Sections fetch failed:", err);
+    }
+  }
 
   /**
    * Builds a *raw* document entry (no data-URI encoding yet). Bodies stay as
@@ -319,6 +446,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         body += `<div>${cleanCanvasHtml(a.description)}</div>`;
         if (types.linkedFiles) await extractLinkedFiles(a.description, `Assignment: ${a.name}`);
       }
+      body += renderRubricDefinition(a.rubric);
       const safeName = sanitizeFilename(a.name).substring(0, 100);
       filesToDownload.push(buildDocEntry(a.name, body, safeName, "Assignments/", "assignment", String(a.id)));
     }
@@ -334,7 +462,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     for (const a of assignments) {
       const safeAssignment = sanitizeFilename(a.name).substring(0, 80);
       const subs = await fetchAllPages(
-        api(`assignments/${a.id}/submissions?per_page=100&include[]=user&include[]=submission_comments`)
+        api(`assignments/${a.id}/submissions?per_page=100&include[]=user&include[]=submission_comments&include[]=rubric_assessment`)
       );
 
       for (const s of subs) {
@@ -373,6 +501,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
           if (types.linkedFiles) await extractLinkedFiles(s.body, `Submission: ${a.name} — ${studentName}`);
         }
         if (s.url) body += `<p><strong>Submitted URL:</strong> <a href="${s.url}">${s.url}</a></p>`;
+        body += renderRubricAssessment(a.rubric, s.rubric_assessment);
         const comments = s.submission_comments || [];
         if (comments.length) {
           body += "<h3>Comments</h3><ul>";
@@ -627,10 +756,9 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // A teacher has no own submission, so the personal Grades.csv below would be
   // empty. Instead emit a full Gradebook.csv: one row per student, one column
   // per assignment, built from the bulk submissions endpoint.
-  if (isTeacher && types.grades && assignments.length > 0) {
+  if (isTeacher && types.grades && assignments.length > 0 && students.length > 0) {
     log("Fetching gradebook...");
     try {
-      const students = await fetchAllPages(api("users?enrollment_type[]=student&per_page=100"));
       const allSubs = await fetchAllPages(api("students/submissions?student_ids[]=all&per_page=100"));
 
       // Index scores by "<userId>:<assignmentId>".
@@ -638,12 +766,13 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       for (const s of allSubs) scoreByKey.set(`${s.user_id}:${s.assignment_id}`, s.score ?? s.grade ?? "");
 
       const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
-      const header = ["Student", "Login/SIS ID", ...assignments.map((a) => a.name)].map(q).join(",");
-      const pointsRow = [q("Points Possible"), q(""), ...assignments.map((a) => a.points_possible ?? "")].join(",");
+      const header = ["Student", "Login/SIS ID", "Section", ...assignments.map((a) => a.name)].map(q).join(",");
+      const pointsRow = [q("Points Possible"), q(""), q(""), ...assignments.map((a) => a.points_possible ?? "")].join(",");
       const rows = [header, pointsRow];
 
       for (const stu of students) {
-        const cells = [q(stu.sortable_name || stu.name || `user_${stu.id}`), q(stu.login_id || stu.sis_user_id || "")];
+        const section = userIdToSection.get(String(stu.id)) || "";
+        const cells = [q(stu.sortable_name || stu.name || `user_${stu.id}`), q(stu.login_id || stu.sis_user_id || ""), q(section)];
         for (const a of assignments) cells.push(scoreByKey.get(`${stu.id}:${a.id}`) ?? "");
         rows.push(cells.join(","));
         gradebookStudentCount++;
@@ -652,6 +781,21 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       filesToDownload.push({
         url: `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`,
         filename: "Gradebook.csv",
+        path: "",
+      });
+
+      // Roster CSV: one row per student with section, login, and email.
+      const studentRows = ['"Student","Sortable Name","Login/SIS ID","Email","Section"'];
+      for (const stu of students) {
+        const section = userIdToSection.get(String(stu.id)) || "";
+        studentRows.push([
+          stu.name || "", stu.sortable_name || "",
+          stu.login_id || stu.sis_user_id || "", stu.email || "", section,
+        ].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+      }
+      filesToDownload.push({
+        url: `data:text/csv;charset=utf-8,${encodeURIComponent(studentRows.join("\n"))}`,
+        filename: "Students.csv",
         path: "",
       });
     } catch (err) {
@@ -695,6 +839,126 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
     } catch (err) {
       console.error("[Canvas Downloader] Grades error:", err);
+    }
+  }
+
+  // --- Grading weights (both roles) ------------------------------------------
+  // Assignment-group weights determine the final grade when the course applies
+  // them. Students see these on their own grades page, so this isn't gated.
+  if (types.grades) {
+    try {
+      const groups = await fetchAllPages(api("assignment_groups?per_page=100"));
+      if (groups.some((g) => Number(g.group_weight) > 0)) {
+        let body = "<table><thead><tr><th>Group</th><th>Weight</th></tr></thead><tbody>";
+        let total = 0;
+        for (const g of groups) {
+          total += Number(g.group_weight) || 0;
+          body += `<tr><td>${escapeHtml(g.name || "")}</td><td>${fmtPoints(g.group_weight) || 0}%</td></tr>`;
+        }
+        body += `<tr><th>Total</th><th>${fmtPoints(total)}%</th></tr></tbody></table>`;
+        filesToDownload.push(buildDocEntry(`Grading Weights — ${courseName}`, body, "Grading Weights", "", "grading-weights"));
+      }
+    } catch (err) {
+      console.error("[Canvas Downloader] Grading weights error:", err);
+    }
+  }
+
+  // --- Quizzes ---------------------------------------------------------------
+  // Metadata + description for everyone. Teachers also get the question bank
+  // with the answer key and a per-student score table + _grades.csv. Students
+  // get their own score and, when the instructor left responses visible, their
+  // own answered questions. Modeled on dlxmax's canvas-teacher-export.
+  if (types.quizzes) {
+    log("Fetching quizzes...");
+    const quizzes = await fetchAllPages(api("quizzes?per_page=100"));
+    for (const quiz of quizzes) {
+      const safeQuiz = sanitizeFilename(quiz.title).substring(0, 80);
+      const quizPath = `Quizzes/${safeQuiz}/`;
+      let body = "";
+      const meta = [];
+      if (quiz.quiz_type) meta.push(`<strong>Type:</strong> ${escapeHtml(quiz.quiz_type)}`);
+      if (quiz.points_possible != null) meta.push(`<strong>Points:</strong> ${fmtPoints(quiz.points_possible)}`);
+      if (quiz.question_count != null) meta.push(`<strong>Questions:</strong> ${quiz.question_count}`);
+      if (quiz.due_at) meta.push(`<strong>Due:</strong> ${formatDate(quiz.due_at)}`);
+      if (quiz.time_limit) meta.push(`<strong>Time limit:</strong> ${quiz.time_limit} min`);
+      if (meta.length) body += `<p>${meta.join(" · ")}</p>`;
+      if (quiz.description) {
+        body += `<div>${cleanCanvasHtml(quiz.description)}</div>`;
+        if (types.linkedFiles) await extractLinkedFiles(quiz.description, `Quiz: ${quiz.title}`);
+      }
+
+      if (isTeacher) {
+        // Full question bank + answer key.
+        try {
+          const questions = await fetchAllPages(api(`quizzes/${quiz.id}/questions?per_page=100`));
+          body += renderQuizQuestions(questions);
+        } catch (err) {
+          console.error(`[Canvas Downloader] Quiz questions error (${quiz.title}):`, err);
+        }
+        // Per-student scores + _grades.csv. The quiz-submissions endpoint
+        // returns a wrapped object ({ quiz_submissions, users }), not a bare
+        // array, so it's fetched directly rather than via fetchAllPages.
+        try {
+          const res = await fetchWithRetry(api(`quizzes/${quiz.id}/submissions?per_page=100&include[]=user`), {
+            headers: { Accept: "application/json+canvas-string-ids" },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const qsubs = data.quiz_submissions || [];
+            const nameFromPayload = new Map((data.users || []).map((u) => [String(u.id), u.sortable_name || u.name]));
+            const nameOf = (uid) => userIdToName.get(String(uid)) || nameFromPayload.get(String(uid)) || `user_${uid}`;
+            if (qsubs.length) {
+              let table = "<h3>Student scores</h3><table><thead><tr><th>Student</th><th>Score</th><th>Attempt</th><th>Finished</th></tr></thead><tbody>";
+              const csv = ['"Student","Score","Points Possible","Attempt","Finished At","Workflow State"'];
+              for (const qs of qsubs) {
+                const name = nameOf(qs.user_id);
+                const score = qs.kept_score ?? qs.score ?? "";
+                table += `<tr><td>${escapeHtml(name)}</td><td>${score} / ${fmtPoints(quiz.points_possible)}</td><td>${qs.attempt ?? ""}</td><td>${qs.finished_at ? formatDate(qs.finished_at) : ""}</td></tr>`;
+                csv.push([name, score, quiz.points_possible ?? "", qs.attempt ?? "", qs.finished_at ? formatDate(qs.finished_at) : "", qs.workflow_state || ""].map((v) => `"${String(v).replace(/"/g, '""')}"`).join(","));
+              }
+              body += table + "</tbody></table>";
+              filesToDownload.push({
+                url: `data:text/csv;charset=utf-8,${encodeURIComponent(csv.join("\n"))}`,
+                filename: "_grades.csv",
+                path: quizPath,
+              });
+            }
+          }
+        } catch (err) {
+          console.error(`[Canvas Downloader] Quiz submissions error (${quiz.title}):`, err);
+        }
+      } else {
+        // Student: own score, plus own answered questions when allowed.
+        try {
+          const res = await fetchWithRetry(api(`quizzes/${quiz.id}/submissions?per_page=100`), {
+            headers: { Accept: "application/json+canvas-string-ids" },
+          });
+          if (res.ok) {
+            const data = await res.json();
+            const qs = (data.quiz_submissions || [])[0];
+            if (qs) {
+              const score = qs.kept_score ?? qs.score ?? "—";
+              body += `<h3>Your result</h3><p><strong>Score:</strong> ${score} / ${fmtPoints(quiz.points_possible)}${qs.attempt ? ` · attempt ${qs.attempt}` : ""}${qs.finished_at ? ` · finished ${formatDate(qs.finished_at)}` : ""}</p>`;
+              try {
+                const qres = await fetchWithRetry(`${domain}/api/v1/quiz_submissions/${qs.id}/questions`, {
+                  headers: { Accept: "application/json+canvas-string-ids" },
+                });
+                if (qres.ok) {
+                  const qdata = await qres.json();
+                  body += renderOwnQuizAnswers(qdata.quiz_submission_questions || []);
+                }
+              } catch (err) {
+                console.warn(`[Canvas Downloader] Own quiz answers unavailable (${quiz.title}):`, err);
+              }
+            }
+          }
+        } catch (err) {
+          console.error(`[Canvas Downloader] Quiz result error (${quiz.title}):`, err);
+        }
+      }
+
+      filesToDownload.push(buildDocEntry(quiz.title, body, safeQuiz, quizPath, "quiz", String(quiz.id)));
+      quizCount++;
     }
   }
 
@@ -780,6 +1044,7 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       discussionReplies: discussionReplyCount,
       studentSubmissions: studentSubmissionCount,
       gradebookStudents: gradebookStudentCount,
+      quizzes: quizCount,
       modules: modules.length,
       extractedFiles: filesToDownload.filter((f) => f.path === "Extracted_Files/").length,
       skippedIncremental: skippedCount,

@@ -117,7 +117,76 @@ function cleanCanvasHtml(html) {
     }
   }
 
+  rewriteYouTubeEmbeds(tpl.content);
+  neutralizeCanvasPlaceholders(tpl.content);
+
   return tpl.innerHTML;
+}
+
+/**
+ * YouTube iframes throw error 153 when opened from a file:// origin (the player
+ * rejects null origins), so an offline export shows a dead box. Replace each
+ * embed with a clickable thumbnail that opens the video on YouTube. Idea from
+ * dlxmax's canvas-teacher-export; adapted to DOM ops (no cross-origin title
+ * fetch, which a content script can't make without YouTube host permission).
+ */
+function rewriteYouTubeEmbeds(root) {
+  const iframes = root.querySelectorAll(
+    'iframe[src*="youtube.com/embed/"], iframe[src*="youtube-nocookie.com/embed/"]'
+  );
+  for (const iframe of iframes) {
+    const m = (iframe.getAttribute("src") || "").match(/\/embed\/([A-Za-z0-9_-]+)/);
+    if (!m) continue;
+    const vid = m[1];
+    const wrap = document.createElement("div");
+    wrap.className = "yt-embed";
+    wrap.setAttribute("data-youtube-id", vid);
+    const a = document.createElement("a");
+    a.href = `https://www.youtube.com/watch?v=${vid}`;
+    a.target = "_blank";
+    a.rel = "noopener";
+    a.title = "Play on YouTube";
+    const img = document.createElement("img");
+    img.src = `https://img.youtube.com/vi/${vid}/hqdefault.jpg`;
+    img.alt = `YouTube video ${vid}`;
+    img.loading = "lazy";
+    a.appendChild(img);
+    wrap.appendChild(a);
+    iframe.replaceWith(wrap);
+  }
+}
+
+/**
+ * Canvas sometimes leaves literal import placeholders like
+ * `$CANVAS_OBJECT_REFERENCE$` in copied/imported content. They point nowhere and
+ * become dead canvas.instructure.com links once the account is gone. Turn
+ * placeholder anchors into inert labelled text and defuse any other href/src
+ * carrying a placeholder. Idea from dlxmax's canvas-teacher-export.
+ */
+function neutralizeCanvasPlaceholders(root) {
+  const placeholder = /\$[A-Z][A-Z0-9_-]*\$/;
+  for (const el of [...root.querySelectorAll("[href], [src]")]) {
+    const href = el.getAttribute("href");
+    const src = el.getAttribute("src");
+    const hit = (href && placeholder.test(href)) || (src && placeholder.test(src));
+    if (!hit) continue;
+    if (el.tagName === "A") {
+      const span = document.createElement("span");
+      span.className = "canvas-archive-broken";
+      span.title = "Canvas import placeholder, no archived target";
+      span.textContent = el.textContent;
+      el.replaceWith(span);
+    } else {
+      if (href && placeholder.test(href)) {
+        el.setAttribute("data-broken-href", href);
+        el.removeAttribute("href");
+      }
+      if (src && placeholder.test(src)) {
+        el.setAttribute("data-broken-src", src);
+        el.removeAttribute("src");
+      }
+    }
+  }
 }
 
 /**

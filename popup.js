@@ -15,6 +15,7 @@ const CONTENT_TYPE_LABELS = {
   modules: "Modules",
   syllabus: "Syllabus",
   grades: "Grades",
+  quizzes: "Quizzes",
   linkedFiles: "Linked Files",
 };
 
@@ -39,7 +40,7 @@ document.addEventListener("DOMContentLoaded", () => {
     contentTypes: {
       files: true, pages: true, assignments: true, discussions: true,
       announcements: true, modules: true, syllabus: true, grades: true,
-      linkedFiles: true,
+      quizzes: true, linkedFiles: true,
     },
   }, (settings) => {
     const tagsEl = document.getElementById("contentTags");

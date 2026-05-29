@@ -14,6 +14,7 @@ const DEFAULTS = {
     modules: true,
     syllabus: true,
     grades: true,
+    quizzes: true,
     linkedFiles: true,
   },
   conflictAction: "uniquify",
@@ -31,22 +32,22 @@ const PRESETS = {
   "full-archive": {
     files: true, pages: true, assignments: true, discussions: true,
     announcements: true, modules: true, syllabus: true, grades: true,
-    linkedFiles: true,
+    quizzes: true, linkedFiles: true,
   },
   "files-only": {
     files: true, pages: false, assignments: false, discussions: false,
     announcements: false, modules: false, syllabus: false, grades: false,
-    linkedFiles: false,
+    quizzes: false, linkedFiles: false,
   },
   "text-only": {
     files: false, pages: true, assignments: true, discussions: true,
     announcements: true, modules: true, syllabus: true, grades: true,
-    linkedFiles: false,
+    quizzes: true, linkedFiles: false,
   },
   "linked-only": {
     files: false, pages: false, assignments: false, discussions: false,
     announcements: false, modules: false, syllabus: false, grades: false,
-    linkedFiles: true,
+    quizzes: false, linkedFiles: true,
   },
 };
 
