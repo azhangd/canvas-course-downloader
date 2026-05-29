@@ -195,6 +195,18 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   // rewriting can dereference /modules/items/<id> URLs to the actual resource.
   const moduleItemIdToResource = new Map();
 
+  // Teacher/TA/designer sessions can reach endpoints students can't (all
+  // submissions, full discussion threads, every student's grades). Detect the
+  // role once and let each content block opt into the richer teacher fetches.
+  // Students (or any failure) fall back to the exact behavior as before.
+  const isTeacher = await fetchCourseRole(domain, courseId);
+  log(isTeacher ? "Teacher role detected — archiving student data" : "Student role — archiving own view");
+
+  // Counts for teacher-only data, surfaced in the export manifest.
+  let discussionReplyCount = 0;
+  let studentSubmissionCount = 0;
+  let gradebookStudentCount = 0;
+
   /**
    * Builds a *raw* document entry (no data-URI encoding yet). Bodies stay as
    * HTML strings on the entry so the cross-reference rewrite pass can mutate
@@ -290,11 +302,16 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
   }
 
   // --- Assignments -----------------------------------------------------------
+  // The assignment list is also needed to build the teacher gradebook columns,
+  // so fetch it whenever assignments OR (teacher + grades) are requested, but
+  // only emit the per-assignment documents when assignments itself is on.
   let assignments = [];
-  if (types.assignments) {
+  const needAssignmentList = types.assignments || (isTeacher && types.grades);
+  if (needAssignmentList) {
     log("Fetching assignments...");
     assignments = await fetchAllPages(api("assignments?per_page=100"));
-
+  }
+  if (types.assignments) {
     for (const a of assignments) {
       let body = "";
       if (a.due_at) body += `<p><strong>Due:</strong> ${formatDate(a.due_at)}</p>`;
@@ -304,6 +321,70 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       }
       const safeName = sanitizeFilename(a.name).substring(0, 100);
       filesToDownload.push(buildDocEntry(a.name, body, safeName, "Assignments/", "assignment", String(a.id)));
+    }
+  }
+
+  // --- Student submissions (teacher only) ------------------------------------
+  // For each assignment, pull every student's submission: attached files, the
+  // typed/online body, grade and instructor comments — organized as
+  // Submissions/<Assignment>/<Student>/. Skipped entirely for students (whose
+  // session would only return their own submission anyway).
+  if (isTeacher && types.assignments && assignments.length > 0) {
+    log("Fetching student submissions...");
+    for (const a of assignments) {
+      const safeAssignment = sanitizeFilename(a.name).substring(0, 80);
+      const subs = await fetchAllPages(
+        api(`assignments/${a.id}/submissions?per_page=100&include[]=user&include[]=submission_comments`)
+      );
+
+      for (const s of subs) {
+        // Skip slots that were never submitted and never graded.
+        if (s.workflow_state === "unsubmitted" && s.score == null && !s.submission_comments?.length) continue;
+
+        const studentName = s.user?.sortable_name || s.user?.name || `user_${s.user_id}`;
+        const safeStudent = sanitizeFilename(studentName).substring(0, 80);
+        const studentPath = `Submissions/${safeAssignment}/${safeStudent}/`;
+
+        // Submitted file attachments.
+        for (const att of s.attachments || []) {
+          const fileId = String(att.id || "");
+          if (att.url && fileId && !seenFileIds.has(fileId)) {
+            seenFileIds.add(fileId);
+            filesToDownload.push({
+              url: att.url,
+              filename: att.display_name || att.filename || `attachment_${fileId}`,
+              path: studentPath,
+              size: att.size || 0,
+              contentType: att["content-type"] || "",
+              canvasId: fileId,
+            });
+          }
+        }
+
+        // Per-student summary doc: grade, state, text/URL entry, comments.
+        let body = `<p><strong>Student:</strong> ${studentName}</p>`;
+        body += `<p><strong>Status:</strong> ${s.workflow_state || "—"}</p>`;
+        if (s.submitted_at) body += `<p><strong>Submitted:</strong> ${formatDate(s.submitted_at)}</p>`;
+        if (s.score != null || s.grade != null) {
+          body += `<p><strong>Grade:</strong> ${s.grade ?? ""} (${s.score ?? ""} / ${a.points_possible ?? "—"})${s.late ? " · <em>late</em>" : ""}</p>`;
+        }
+        if (s.body) {
+          body += `<h3>Submission text</h3><div>${cleanCanvasHtml(s.body)}</div>`;
+          if (types.linkedFiles) await extractLinkedFiles(s.body, `Submission: ${a.name} — ${studentName}`);
+        }
+        if (s.url) body += `<p><strong>Submitted URL:</strong> <a href="${s.url}">${s.url}</a></p>`;
+        const comments = s.submission_comments || [];
+        if (comments.length) {
+          body += "<h3>Comments</h3><ul>";
+          for (const c of comments) {
+            body += `<li><strong>${c.author_name || "Unknown"}</strong>${c.created_at ? ` · ${formatDate(c.created_at)}` : ""}: ${cleanCanvasHtml(c.comment || "")}</li>`;
+          }
+          body += "</ul>";
+        }
+
+        filesToDownload.push(buildDocEntry(`${a.name} — ${studentName}`, body, "submission", studentPath, "submission", null));
+        studentSubmissionCount++;
+      }
     }
   }
 
@@ -332,6 +413,43 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     const allTopics = await fetchAllPages(api("discussion_topics?per_page=100"));
     discussions = allTopics.filter((d) => !d.is_announcement);
 
+    // Recursively renders the threaded reply tree from a topic's /view payload.
+    // Side effects: extracts linked files and pushes reply attachments as files.
+    const renderEntries = async (entries, participantName, topicTitle, attachmentPath, depth = 0) => {
+      if (!Array.isArray(entries) || entries.length === 0) return "";
+      let html = `<ul class="discussion-replies" style="list-style:none;margin:0;padding-left:${depth ? 24 : 0}px;border-left:${depth ? "2px solid #ddd" : "none"}">`;
+      for (const e of entries) {
+        const author = participantName.get(String(e.user_id)) || "Unknown user";
+        const when = e.created_at ? formatDate(e.created_at) : "";
+        const message = e.deleted ? "<em>[deleted]</em>" : cleanCanvasHtml(e.message || "");
+        html += `<li style="margin:12px 0"><p style="margin:0 0 4px"><strong>${author}</strong>${when ? ` · <span style="color:#666">${when}</span>` : ""}</p><div>${message}</div>`;
+
+        if (types.linkedFiles && e.message) await extractLinkedFiles(e.message, `Discussion reply: ${topicTitle}`);
+
+        const atts = e.attachments || (e.attachment ? [e.attachment] : []);
+        for (const att of atts) {
+          const fileId = String(att.id || "");
+          if (att.url && fileId && !seenFileIds.has(fileId)) {
+            seenFileIds.add(fileId);
+            filesToDownload.push({
+              url: att.url,
+              filename: att.display_name || att.filename || `attachment_${fileId}`,
+              path: attachmentPath,
+              size: att.size || 0,
+              contentType: att["content-type"] || "",
+              canvasId: fileId,
+            });
+          }
+        }
+
+        discussionReplyCount++;
+        html += await renderEntries(e.replies, participantName, topicTitle, attachmentPath, depth + 1);
+        html += "</li>";
+      }
+      html += "</ul>";
+      return html;
+    };
+
     for (const d of discussions) {
       let body = "";
       if (d.user_name) body += `<p><strong>Author:</strong> ${d.user_name}</p>`;
@@ -340,6 +458,26 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
         body += `<div>${cleanCanvasHtml(d.message)}</div>`;
         if (types.linkedFiles) await extractLinkedFiles(d.message, `Discussion: ${d.title}`);
       }
+
+      // Teachers get the full threaded view (all student replies); students only
+      // ever see the opening message, so the /view fetch is gated on the role.
+      if (isTeacher) {
+        try {
+          const res = await fetchWithRetry(api(`discussion_topics/${d.id}/view`), {
+            headers: { Accept: "application/json+canvas-string-ids" },
+          });
+          if (res.ok) {
+            const view = await res.json();
+            const participantName = new Map((view.participants || []).map((p) => [String(p.id), p.display_name || p.name]));
+            const safeTopic = sanitizeFilename(d.title).substring(0, 80);
+            const repliesHtml = await renderEntries(view.view, participantName, d.title, `Discussions/${safeTopic}/`);
+            if (repliesHtml) body += `<hr><h3>Replies</h3>${repliesHtml}`;
+          }
+        } catch (err) {
+          console.error(`[Canvas Downloader] Discussion thread error (${d.title}):`, err);
+        }
+      }
+
       const safeName = sanitizeFilename(d.title).substring(0, 100);
       filesToDownload.push(buildDocEntry(d.title, body, safeName, "Discussions/", "discussion", String(d.id)));
     }
@@ -485,8 +623,44 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
     }
   }
 
-  // --- Grades ----------------------------------------------------------------
-  if (types.grades) {
+  // --- Gradebook (teacher only) ----------------------------------------------
+  // A teacher has no own submission, so the personal Grades.csv below would be
+  // empty. Instead emit a full Gradebook.csv: one row per student, one column
+  // per assignment, built from the bulk submissions endpoint.
+  if (isTeacher && types.grades && assignments.length > 0) {
+    log("Fetching gradebook...");
+    try {
+      const students = await fetchAllPages(api("users?enrollment_type[]=student&per_page=100"));
+      const allSubs = await fetchAllPages(api("students/submissions?student_ids[]=all&per_page=100"));
+
+      // Index scores by "<userId>:<assignmentId>".
+      const scoreByKey = new Map();
+      for (const s of allSubs) scoreByKey.set(`${s.user_id}:${s.assignment_id}`, s.score ?? s.grade ?? "");
+
+      const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+      const header = ["Student", "Login/SIS ID", ...assignments.map((a) => a.name)].map(q).join(",");
+      const pointsRow = [q("Points Possible"), q(""), ...assignments.map((a) => a.points_possible ?? "")].join(",");
+      const rows = [header, pointsRow];
+
+      for (const stu of students) {
+        const cells = [q(stu.sortable_name || stu.name || `user_${stu.id}`), q(stu.login_id || stu.sis_user_id || "")];
+        for (const a of assignments) cells.push(scoreByKey.get(`${stu.id}:${a.id}`) ?? "");
+        rows.push(cells.join(","));
+        gradebookStudentCount++;
+      }
+
+      filesToDownload.push({
+        url: `data:text/csv;charset=utf-8,${encodeURIComponent(rows.join("\n"))}`,
+        filename: "Gradebook.csv",
+        path: "",
+      });
+    } catch (err) {
+      console.error("[Canvas Downloader] Gradebook error:", err);
+    }
+  }
+
+  // --- Grades (student: own scores + class statistics) -----------------------
+  if (types.grades && !isTeacher) {
     log("Fetching grades...");
     try {
       const gradeAssignments = await fetchAllPages(
@@ -603,6 +777,9 @@ async function downloadCourse(courseId, courseName, domain, onProgress) {
       assignments: assignments.length,
       announcements: announcements.length,
       discussions: discussions.length,
+      discussionReplies: discussionReplyCount,
+      studentSubmissions: studentSubmissionCount,
+      gradebookStudents: gradebookStudentCount,
       modules: modules.length,
       extractedFiles: filesToDownload.filter((f) => f.path === "Extracted_Files/").length,
       skippedIncremental: skippedCount,

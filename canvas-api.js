@@ -74,3 +74,24 @@ async function fetchAllCourses(enrollmentState = "active") {
   );
   return courses.filter((c) => c.name).sort((a, b) => a.name.localeCompare(b.name));
 }
+
+/**
+ * True if the current user is a teacher/TA/designer in the course — i.e. has
+ * access to the teacher-only endpoints (all submissions, full discussion
+ * threads, every student's grades). Any failure resolves to `false` so the
+ * caller falls back to plain student behavior.
+ */
+async function fetchCourseRole(domain, courseId) {
+  try {
+    const res = await fetchWithRetry(`${domain}/api/v1/courses/${courseId}?include[]=enrollments`, {
+      headers: { Accept: "application/json+canvas-string-ids" },
+    });
+    if (!res.ok) return false;
+    const course = await res.json();
+    const teacherRoles = ["teacher", "ta", "designer"];
+    return (course.enrollments || []).some((e) => teacherRoles.includes(e.type));
+  } catch (err) {
+    console.warn("[Canvas Downloader] Role detection failed, assuming student:", err);
+    return false;
+  }
+}
