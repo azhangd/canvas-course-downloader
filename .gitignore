@@ -4,3 +4,4 @@
 *.pem
 node_modules/
 .claude/
+_metadata/

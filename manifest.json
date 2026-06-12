@@ -16,13 +16,24 @@
   },
   "permissions": [
     "activeTab",
+    "declarativeNetRequest",
     "downloads",
     "notifications",
     "storage"
   ],
   "host_permissions": [
-    "*://*.instructure.com/*"
+    "*://*.instructure.com/*",
+    "*://*.canvas-user-content.com/*"
   ],
+  "declarative_net_request": {
+    "rule_resources": [
+      {
+        "id": "ruleset_cors",
+        "enabled": true,
+        "path": "rules.json"
+      }
+    ]
+  },
   "background": {
     "service_worker": "background.js"
   },

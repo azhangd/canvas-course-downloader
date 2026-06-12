@@ -29,6 +29,8 @@ The extension requests the following browser permissions:
 | `storage` | To save your settings and track which files have been downloaded in incremental mode |
 | Content script (`https://*/*`) | Canvas LMS can be hosted on any domain, so the content script loads on any HTTPS page to detect Canvas. It exits immediately on non-Canvas pages |
 | Host permissions (`*://*.instructure.com/*`) | Elevated access for Instructure-hosted Canvas instances. On self-hosted instances the extension works through same-origin requests from the page you're already on |
+| `declarativeNetRequest` | Allows the extension to declare rules that modify network responses. Used solely to add a CORS header to responses from Canvas's file CDN (`canvas-user-content.com`), which is required for the extension to read file bytes when building ZIP archives |
+| Host permissions (`*://*.canvas-user-content.com/*`) | Canvas stores uploaded files on this CDN domain. This permission is required for the CORS rule above to be permitted to apply to responses from that domain |
 
 ## Third-Party Services
 
