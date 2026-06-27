@@ -3,5 +3,7 @@
 *.crx
 *.pem
 node_modules/
+__pycache__/
+*.pyc
 .claude/
 _metadata/
