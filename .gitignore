@@ -5,5 +5,7 @@
 node_modules/
 __pycache__/
 *.pyc
+.venv-*/
+.umich-export-work/
 .claude/
 _metadata/
