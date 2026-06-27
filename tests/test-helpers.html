@@ -64,7 +64,7 @@
     assertEqual("sanitizeFilename: returns untitled when fully stripped", sanitizeFilename("​​"), "untitled");
 
     // --- sanitizeHtml ---
-    assertEqual("sanitizeHtml: removes script tags", sanitizeHtml('<p>Hello</p><script>alert("xss")</script>'), "<p>Hello</p>");
+    assertEqual("sanitizeHtml: removes script tags", sanitizeHtml('<p>Hello</p><script>alert("xss")<\\/script>'), "<p>Hello</p>");
     assertEqual("sanitizeHtml: leaves safe HTML alone", sanitizeHtml("<p>Hello <strong>world</strong></p>"), "<p>Hello <strong>world</strong></p>");
     assert("sanitizeHtml: strips onclick attribute", !sanitizeHtml('<a href="#" onclick="alert(1)">x</a>').includes("onclick"));
     assert("sanitizeHtml: strips onerror attribute", !sanitizeHtml('<img src="x" onerror="alert(1)">').includes("onerror"));
@@ -74,7 +74,7 @@
     // --- toHtmlDataUri ---
     assert("toHtmlDataUri: returns data URI", toHtmlDataUri("Test", "<p>Body</p>").startsWith("data:text/html;charset=utf-8,"));
     assert("toHtmlDataUri: contains title", decodeURIComponent(toHtmlDataUri("My Title", "")).includes("<title>My Title</title>"));
-    assert("toHtmlDataUri: strips scripts from body", !decodeURIComponent(toHtmlDataUri("X", '<script>alert(1)</script>')).includes("<script>"));
+    assert("toHtmlDataUri: strips scripts from body", !decodeURIComponent(toHtmlDataUri("X", '<script>alert(1)<\\/script>')).includes("<script>"));
     assert("toHtmlDataUri: root file links to styles.css", decodeURIComponent(toHtmlDataUri("X", "", "")).includes('href="./styles.css"'));
     assert("toHtmlDataUri: subfolder file links up to styles.css", decodeURIComponent(toHtmlDataUri("X", "", "Pages/")).includes('href="../styles.css"'));
 
